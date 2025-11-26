@@ -1,0 +1,323 @@
+"""
+Advanced Video Generation Pipeline
+Integrates all the blog's features: web search, Claude AI, thumbnails, notifications, tracking
+"""
+import os
+import datetime
+import json
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Import all our new modules
+from web_search import search_trending_topics, select_topic_with_claude
+from claude_generator import (
+    generate_dialogue_script_with_claude,
+    generate_metadata_with_claude,
+    generate_comments_with_claude
+)
+from tts_generator import generate_dialogue_audio
+from video_maker import make_podcast_video
+from thumbnail_generator import create_thumbnail
+from nano_banana_client import generate_image
+from notifications import (
+    notify_video_start,
+    notify_video_complete,
+    notify_video_error,
+    notify_daily_summary
+)
+from tracking import log_video_to_sheets, create_video_log_entry
+
+BASE = Path(__file__).parent
+OUT = BASE / "outputs"
+
+
+def generate_single_video(
+    video_number: int = 1,
+    topic_category: str = "economics",
+    duration_minutes: int = 10,
+    use_web_search: bool = True
+) -> dict:
+    """
+    Generate a single video with all advanced features
+
+    Args:
+        video_number: Video number for this session
+        topic_category: Category for topic search
+        duration_minutes: Target video duration
+        use_web_search: Whether to use web search for topics
+
+    Returns:
+        Dictionary with video information
+    """
+    today = str(datetime.date.today())
+    video_id = f"{today}-{video_number:03d}"
+    outdir = OUT / today / f"video_{video_number:03d}"
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    print(f"\n{'='*60}")
+    print(f"  Video #{video_number} - {video_id}")
+    print(f"{'='*60}\n")
+
+    try:
+        # Step 1: Discover trending topic (Blog's Prompt A)
+        print("[1/9] 🔍 Searching for trending topics...")
+        if use_web_search:
+            search_results = search_trending_topics(topic_category)
+            topic_analysis = select_topic_with_claude(search_results, duration_minutes)
+        else:
+            # Use fallback topic
+            topic_analysis = {
+                "title": os.getenv("VIDEO_TOPIC", "昭和時代の日本経済"),
+                "angle": "歴史的な視点から解説",
+                "key_points": ["経済成長", "生活の変化", "技術革新"],
+            }
+
+        topic_title = topic_analysis.get("title", "Unknown Topic")
+        print(f"  Selected: {topic_title}")
+
+        # Save topic analysis
+        json.dump(topic_analysis, open(outdir / "topic.json", "w", encoding="utf-8"),
+                  ensure_ascii=False, indent=2)
+
+        # Notify start
+        notify_video_start(video_number, topic_title, duration_minutes)
+
+        # Step 2: Generate dialogue script (Blog's Prompt B)
+        print("\n[2/9] ✍️  Generating dialogue script with Claude...")
+        script = generate_dialogue_script_with_claude(topic_analysis, duration_minutes)
+        print(f"  Title: {script['title']}")
+        print(f"  Dialogues: {len(script['dialogues'])} exchanges")
+
+        # Save script
+        json.dump(script, open(outdir / "script.json", "w", encoding="utf-8"),
+                  ensure_ascii=False, indent=2)
+
+        # Step 3: Generate background image
+        print("\n[3/9] 🎨 Generating background image...")
+        bg_path = outdir / "background.png"
+        bg_prompt = script.get("background_prompt",
+            "Cozy Japanese room, Lo-fi anime style, warm lighting, desk with lamp, peaceful atmosphere")
+        generate_image(bg_prompt, bg_path)
+        print(f"  Background saved: {bg_path}")
+
+        # Step 4: Generate audio with dialogue
+        print("\n[4/9] 🎙️  Generating dialogue audio with Gemini TTS...")
+        audio_path = outdir / "dialogue"
+        audio_file, timing_data = generate_dialogue_audio(script["dialogues"], audio_path)
+        print(f"  Audio saved: {audio_file}")
+        print(f"  Timing data: {len(timing_data)} segments")
+
+        # Save timing data
+        json.dump(timing_data, open(outdir / "timing.json", "w", encoding="utf-8"),
+                  ensure_ascii=False, indent=2)
+
+        # Step 5: Create video with subtitles
+        print("\n[5/9] 🎬 Creating video with subtitles...")
+        video_path = outdir / "video.mp4"
+        make_podcast_video(bg_path, timing_data, audio_file, video_path)
+
+        # Get video duration
+        import subprocess
+        result = subprocess.run([
+            "ffprobe", "-v", "error", "-show_entries",
+            "format=duration", "-of", "csv=p=0", str(video_path)
+        ], capture_output=True, text=True)
+        video_duration = float(result.stdout.strip()) if result.stdout.strip() else 0
+
+        # Step 6: Generate metadata (Blog's Prompt C)
+        print("\n[6/9] 📝 Generating metadata with Claude...")
+        metadata = generate_metadata_with_claude(script, video_duration)
+        print(f"  YouTube Title: {metadata.get('youtube_title', 'N/A')}")
+
+        # Save metadata
+        json.dump(metadata, open(outdir / "metadata.json", "w", encoding="utf-8"),
+                  ensure_ascii=False, indent=2)
+
+        # Step 7: Generate engagement comments (Blog's Prompt D)
+        print("\n[7/9] 💬 Generating engagement comments...")
+        comments = generate_comments_with_claude(script, count=5)
+        json.dump({"comments": comments}, open(outdir / "comments.json", "w", encoding="utf-8"),
+                  ensure_ascii=False, indent=2)
+        print(f"  Generated {len(comments)} comments")
+
+        # Step 8: Generate thumbnail
+        print("\n[8/9] 🖼️  Generating thumbnail...")
+        thumbnail_text = script.get("thumbnail_text", topic_title[:10])
+        thumbnail_path = outdir / "thumbnail.jpg"
+        create_thumbnail(
+            bg_path,
+            thumbnail_text,
+            subtitle_text="",
+            output_path=thumbnail_path,
+            accent_color_index=video_number % 4
+        )
+        print(f"  Thumbnail saved: {thumbnail_path}")
+
+        # Step 9: Log to tracking system
+        print("\n[9/9] 📊 Logging to tracking system...")
+        log_entry = create_video_log_entry(
+            video_id=video_id,
+            title=script["title"],
+            file_path=str(video_path),
+            duration_seconds=video_duration,
+            metadata=metadata,
+            topic_data=topic_analysis,
+            status="generated"
+        )
+        log_video_to_sheets(log_entry)
+
+        # Save complete manifest
+        manifest = {
+            "video_id": video_id,
+            "video_number": video_number,
+            "topic_analysis": topic_analysis,
+            "script": script,
+            "metadata": metadata,
+            "comments": comments,
+            "files": {
+                "video": str(video_path),
+                "audio": str(audio_file),
+                "background": str(bg_path),
+                "thumbnail": str(thumbnail_path),
+            },
+            "duration_seconds": video_duration,
+            "created_at": datetime.datetime.now().isoformat()
+        }
+        json.dump(manifest, open(outdir / "manifest.json", "w", encoding="utf-8"),
+                  ensure_ascii=False, indent=2)
+
+        # Notify completion
+        notify_video_complete(video_number, topic_title, str(video_path), video_duration, metadata)
+
+        print(f"\n✅ Video #{video_number} Complete!")
+        print(f"   Output: {video_path}")
+        print(f"   Duration: {int(video_duration // 60)}:{int(video_duration % 60):02d}")
+
+        return manifest
+
+    except Exception as e:
+        error_msg = str(e)
+        print(f"\n❌ Error generating video #{video_number}: {error_msg}")
+
+        # Notify error
+        notify_video_error(video_number, topic_title if 'topic_title' in locals() else "Unknown", error_msg)
+
+        # Log failure
+        try:
+            log_entry = create_video_log_entry(
+                video_id=video_id,
+                title=topic_title if 'topic_title' in locals() else "Failed Video",
+                file_path="",
+                duration_seconds=0,
+                status="failed"
+            )
+            log_entry["error"] = error_msg
+            log_video_to_sheets(log_entry)
+        except:
+            pass
+
+        raise
+
+
+def generate_multiple_videos(
+    count: int = 4,
+    topic_category: str = "economics",
+    duration_minutes: int = 10,
+    use_web_search: bool = True
+) -> list:
+    """
+    Generate multiple videos (like the blog's 4 videos/day)
+
+    Args:
+        count: Number of videos to generate
+        topic_category: Category for topic search
+        duration_minutes: Target duration per video
+        use_web_search: Whether to use web search
+
+    Returns:
+        List of video manifests
+    """
+    print(f"\n{'='*60}")
+    print(f"  Generating {count} videos")
+    print(f"  Category: {topic_category}")
+    print(f"  Duration: {duration_minutes} minutes each")
+    print(f"{'='*60}\n")
+
+    results = []
+    successful = 0
+    failed = 0
+    total_duration = 0
+    topics = []
+
+    for i in range(1, count + 1):
+        try:
+            manifest = generate_single_video(
+                video_number=i,
+                topic_category=topic_category,
+                duration_minutes=duration_minutes,
+                use_web_search=use_web_search
+            )
+            results.append(manifest)
+            successful += 1
+            total_duration += manifest.get("duration_seconds", 0)
+            topics.append(manifest.get("script", {}).get("title", "Unknown"))
+
+            # Wait between videos to avoid rate limits
+            if i < count:
+                print(f"\n⏳ Waiting 10 seconds before next video...\n")
+                import time
+                time.sleep(10)
+
+        except Exception as e:
+            print(f"Failed to generate video {i}: {e}")
+            failed += 1
+            results.append({"error": str(e), "video_number": i})
+
+    # Send daily summary
+    notify_daily_summary(
+        total_videos=count,
+        successful=successful,
+        failed=failed,
+        total_duration_minutes=total_duration / 60,
+        topics=topics
+    )
+
+    print(f"\n{'='*60}")
+    print(f"  Batch Complete!")
+    print(f"  Successful: {successful}/{count}")
+    print(f"  Failed: {failed}/{count}")
+    print(f"  Total Duration: {int(total_duration / 60)} minutes")
+    print(f"{'='*60}\n")
+
+    return results
+
+
+def main():
+    """Main entry point"""
+    if (BASE / ".env").exists():
+        load_dotenv(BASE / ".env")
+
+    # Get configuration
+    videos_per_day = int(os.getenv("VIDEOS_PER_DAY", "1"))
+    duration_minutes = int(os.getenv("DURATION_MINUTES", "10"))
+    topic_category = os.getenv("TOPIC_CATEGORY", "economics")
+    use_web_search = os.getenv("USE_WEB_SEARCH", "true").lower() == "true"
+
+    if videos_per_day > 1:
+        generate_multiple_videos(
+            count=videos_per_day,
+            topic_category=topic_category,
+            duration_minutes=duration_minutes,
+            use_web_search=use_web_search
+        )
+    else:
+        generate_single_video(
+            video_number=1,
+            topic_category=topic_category,
+            duration_minutes=duration_minutes,
+            use_web_search=use_web_search
+        )
+
+
+if __name__ == "__main__":
+    main()

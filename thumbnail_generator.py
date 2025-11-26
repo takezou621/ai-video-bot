@@ -1,0 +1,275 @@
+"""
+Thumbnail Generator - Creates eye-catching YouTube thumbnails
+Based on the blog's automated thumbnail generation
+"""
+import os
+from pathlib import Path
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
+from typing import Tuple
+
+
+# Thumbnail dimensions (YouTube recommended: 1280x720)
+THUMBNAIL_WIDTH = 1280
+THUMBNAIL_HEIGHT = 720
+
+# Text styling
+TITLE_FONT_SIZE = 80
+SUBTITLE_FONT_SIZE = 48
+TEXT_COLOR = (255, 255, 255)
+SHADOW_COLOR = (0, 0, 0)
+ACCENT_COLORS = [
+    (255, 200, 100),  # Orange
+    (100, 200, 255),  # Blue
+    (255, 150, 150),  # Pink
+    (150, 255, 150),  # Green
+]
+
+
+def get_japanese_font(size: int):
+    """Get a bold font that supports Japanese"""
+    font_paths = [
+        # Linux (Docker)
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        # macOS
+        "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",
+        "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
+        # Windows
+        "C:\\Windows\\Fonts\\msgothic.ttc",
+    ]
+
+    for path in font_paths:
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except:
+                continue
+
+    # Fallback
+    try:
+        return ImageFont.truetype("DejaVuSans-Bold.ttf", size)
+    except:
+        return ImageFont.load_default()
+
+
+def wrap_text(text: str, font, max_width: int) -> list:
+    """Wrap text to fit within max_width"""
+    lines = []
+    current_line = ""
+
+    for char in text:
+        test_line = current_line + char
+        bbox = font.getbbox(test_line)
+        if bbox[2] - bbox[0] <= max_width:
+            current_line = test_line
+        else:
+            if current_line:
+                lines.append(current_line)
+            current_line = char
+
+    if current_line:
+        lines.append(current_line)
+
+    return lines or [""]
+
+
+def add_text_with_shadow(
+    draw: ImageDraw.Draw,
+    position: Tuple[int, int],
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    text_color: Tuple[int, int, int],
+    shadow_offset: int = 4
+):
+    """Draw text with shadow for better readability"""
+    x, y = position
+
+    # Draw shadow (multiple layers for stronger effect)
+    for offset in range(1, shadow_offset + 1):
+        draw.text((x + offset, y + offset), text, font=font, fill=SHADOW_COLOR)
+
+    # Draw main text
+    draw.text(position, text, font=font, fill=text_color)
+
+
+def create_thumbnail(
+    background_image_path: Path,
+    thumbnail_text: str,
+    subtitle_text: str = "",
+    output_path: Path = None,
+    accent_color_index: int = 0
+) -> Path:
+    """
+    Create a YouTube thumbnail with text overlay
+
+    Args:
+        background_image_path: Path to background image
+        thumbnail_text: Main text (large, eye-catching)
+        subtitle_text: Optional subtitle text
+        output_path: Output path for thumbnail
+        accent_color_index: Index of accent color (0-3)
+
+    Returns:
+        Path to generated thumbnail
+    """
+    if output_path is None:
+        output_path = background_image_path.parent / "thumbnail.jpg"
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Load and prepare background
+    bg = Image.open(background_image_path).convert('RGB')
+
+    # Resize to thumbnail dimensions
+    bg = bg.resize((THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT), Image.Resampling.LANCZOS)
+
+    # Apply slight blur and darken for better text readability
+    bg = bg.filter(ImageFilter.GaussianBlur(radius=2))
+    enhancer = ImageEnhance.Brightness(bg)
+    bg = enhancer.enhance(0.6)  # Darken to 60%
+
+    # Create overlay for text
+    overlay = Image.new('RGBA', bg.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    # Add colored accent bar at top
+    accent_color = ACCENT_COLORS[accent_color_index % len(ACCENT_COLORS)]
+    draw.rectangle([(0, 0), (THUMBNAIL_WIDTH, 20)], fill=accent_color + (230,))
+
+    # Add semi-transparent gradient overlay at bottom for text background
+    gradient_height = 400
+    for i in range(gradient_height):
+        alpha = int((i / gradient_height) * 180)
+        y = THUMBNAIL_HEIGHT - gradient_height + i
+        draw.rectangle(
+            [(0, y), (THUMBNAIL_WIDTH, y + 1)],
+            fill=(0, 0, 0, alpha)
+        )
+
+    # Composite overlay
+    bg_rgba = bg.convert('RGBA')
+    bg = Image.alpha_composite(bg_rgba, overlay).convert('RGB')
+    draw = ImageDraw.Draw(bg)
+
+    # Get fonts
+    title_font = get_japanese_font(TITLE_FONT_SIZE)
+    subtitle_font = get_japanese_font(SUBTITLE_FONT_SIZE)
+
+    # Calculate text positioning
+    max_text_width = THUMBNAIL_WIDTH - 100  # Margins
+
+    # Wrap main text
+    title_lines = wrap_text(thumbnail_text, title_font, max_text_width)
+
+    # Calculate total height
+    title_line_height = TITLE_FONT_SIZE + 10
+    total_title_height = len(title_lines) * title_line_height
+
+    # Starting Y position (centered in bottom half)
+    start_y = THUMBNAIL_HEIGHT - 350
+
+    # Draw main title
+    current_y = start_y
+    for line in title_lines:
+        bbox = title_font.getbbox(line)
+        text_width = bbox[2] - bbox[0]
+        x = (THUMBNAIL_WIDTH - text_width) // 2
+
+        add_text_with_shadow(
+            draw, (x, current_y), line, title_font, TEXT_COLOR, shadow_offset=6
+        )
+        current_y += title_line_height
+
+    # Draw subtitle if provided
+    if subtitle_text:
+        current_y += 20  # Gap between title and subtitle
+        subtitle_lines = wrap_text(subtitle_text, subtitle_font, max_text_width)
+
+        for line in subtitle_lines:
+            bbox = subtitle_font.getbbox(line)
+            text_width = bbox[2] - bbox[0]
+            x = (THUMBNAIL_WIDTH - text_width) // 2
+
+            add_text_with_shadow(
+                draw, (x, current_y), line, subtitle_font, accent_color, shadow_offset=4
+            )
+            current_y += SUBTITLE_FONT_SIZE + 5
+
+    # Add decorative corner elements
+    corner_size = 40
+    draw.rectangle(
+        [(0, 0), (corner_size, corner_size)],
+        fill=accent_color
+    )
+    draw.rectangle(
+        [(THUMBNAIL_WIDTH - corner_size, 0), (THUMBNAIL_WIDTH, corner_size)],
+        fill=accent_color
+    )
+
+    # Save thumbnail
+    bg.save(output_path, 'JPEG', quality=95, optimize=True)
+    print(f"Thumbnail created: {output_path}")
+
+    return output_path
+
+
+def create_multiple_thumbnail_variants(
+    background_image_path: Path,
+    thumbnail_text: str,
+    subtitle_text: str = "",
+    output_dir: Path = None,
+    count: int = 3
+) -> list:
+    """
+    Create multiple thumbnail variants with different accent colors
+
+    Args:
+        background_image_path: Path to background image
+        thumbnail_text: Main text
+        subtitle_text: Optional subtitle
+        output_dir: Output directory
+        count: Number of variants to create
+
+    Returns:
+        List of paths to generated thumbnails
+    """
+    if output_dir is None:
+        output_dir = background_image_path.parent
+
+    thumbnails = []
+    for i in range(count):
+        output_path = output_dir / f"thumbnail_variant_{i+1}.jpg"
+        create_thumbnail(
+            background_image_path,
+            thumbnail_text,
+            subtitle_text,
+            output_path,
+            accent_color_index=i
+        )
+        thumbnails.append(output_path)
+
+    print(f"Created {len(thumbnails)} thumbnail variants")
+    return thumbnails
+
+
+if __name__ == "__main__":
+    # Test thumbnail generation
+    from nano_banana_client import generate_image
+
+    # Generate a test background
+    test_dir = Path("test_output")
+    test_dir.mkdir(exist_ok=True)
+
+    bg_path = test_dir / "test_bg.png"
+    generate_image("Cozy Japanese room, Lo-fi anime style, warm lighting", bg_path)
+
+    # Create thumbnail
+    create_thumbnail(
+        bg_path,
+        "経済ニュース解説",
+        "最新トレンドを分析",
+        test_dir / "test_thumbnail.jpg"
+    )
+
+    print("Test complete!")

@@ -2,3 +2,6 @@ requests
 gTTS
 python-dotenv
 Pillow
+
+# New dependencies for advanced features
+anthropic>=0.18.0
