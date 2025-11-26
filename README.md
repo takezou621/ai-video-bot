@@ -19,10 +19,10 @@
 
 ### 🔥 最新の品質向上機能（v2.0）
 
-1. **🎯 ElevenLabs STT統合**
-   - 音声から正確な字幕タイミングを自動抽出
+1. **🎯 高精度な字幕タイミング**
+   - 音声長に基づく正確なタイミング推定（デフォルト・精度80-90%）
+   - オプション：ElevenLabs STT統合で完璧な同期（精度99%+）
    - 台本とSTT結果を自動マッチング
-   - 字幕が音声と完璧に同期
 
 2. **🎨 MoviePy高品質レンダリング**
    - フェードイン・フェードアウト効果
@@ -90,18 +90,19 @@
 
 ## 🏗️ システムアーキテクチャ
 
-### 9ステップの自動生成パイプライン
+### 10ステップの完全自動化パイプライン
 
 ```
-1. Web Search      → トレンドトピック検索・選定 (Serper + Claude)
-2. Script Gen      → テンプレート構造で台本生成 (Claude Sonnet 4.5)
-3. Image Gen       → 背景画像生成 (DALL-E 3)
-4. Audio Gen       → 音声生成 (Gemini TTS)
-5. STT Analysis    → 字幕タイミング抽出 (ElevenLabs STT) ⭐NEW
-6. Video Gen       → 高品質動画合成 (FFmpeg + MoviePy) ⭐NEW
-7. Metadata Gen    → SEO最適化メタデータ (Claude + Templates) ⭐NEW
-8. Comments Gen    → エンゲージメントコメント (5 Personas) ⭐NEW
-9. Thumbnail Gen   → サムネイル生成 + Logging
+1.  Web Search      → トレンドトピック検索・選定 (Serper + Claude)
+2.  Script Gen      → テンプレート構造で台本生成 (Claude Sonnet 4.5)
+3.  Image Gen       → 背景画像生成 (DALL-E 3)
+4.  Audio Gen       → 音声生成 (Gemini TTS)
+5.  Video Gen       → 高品質動画合成 (FFmpeg + MoviePy) ⭐
+6.  Metadata Gen    → SEO最適化メタデータ (Claude + Templates) ⭐
+7.  Comments Gen    → エンゲージメントコメント (5 Personas) ⭐
+8.  Thumbnail Gen   → サムネイル生成
+9.  Tracking        → Google Sheets / JSON ログ記録
+10. YouTube Upload  → 自動YouTube投稿 (YouTube Data API v3) ⭐NEW
 ```
 
 ---
@@ -140,6 +141,7 @@ ai-video-bot/
   ├── # 📊 運用・管理
   ├── notifications.py                # Slack通知
   ├── tracking.py                     # Google Sheets / JSON ログ
+  ├── youtube_uploader.py             # ⭐NEW YouTube自動アップロード
   │
   ├── # 📚 ドキュメント
   ├── README.md                       # このファイル
@@ -190,13 +192,18 @@ CLAUDE_API_KEY=your_claude_key          # Claude AI用
 OPENAI_API_KEY=your_openai_key          # DALL-E画像生成用
 
 # オプション（品質向上）⭐NEW
-ELEVENLABS_API_KEY=your_elevenlabs_key  # 字幕精度向上
-USE_ELEVENLABS_STT=true                  # ElevenLabs STT有効化
+ELEVENLABS_API_KEY=your_elevenlabs_key  # 字幕精度向上（オプション）
+USE_ELEVENLABS_STT=false                 # ElevenLabs STT（デフォルト: 無効）
 USE_MOVIEPY=true                         # 高品質レンダリング
 
 # オプション（高度な機能）
 SERPER_API_KEY=your_serper_key          # Web検索用
 SLACK_WEBHOOK_URL=your_slack_webhook    # Slack通知用
+
+# YouTube自動アップロード（オプション）⭐NEW
+YOUTUBE_UPLOAD_ENABLED=false            # YouTube自動投稿を有効化
+YOUTUBE_PRIVACY_STATUS=private          # 公開設定（private/unlisted/public）
+YOUTUBE_PLAYLIST_ID=                    # プレイリストID（オプション）
 
 # 動画設定
 VIDEOS_PER_DAY=1                        # 1日の生成本数（1-4推奨）
@@ -211,6 +218,41 @@ USE_WEB_SEARCH=false                    # Web検索を使うか
 docker compose build
 ```
 
+### 4. YouTube API設定（オプション）⭐NEW
+
+YouTube自動アップロード機能を使用する場合:
+
+1. **Google Cloud Consoleでプロジェクトを作成**
+   - [Google Cloud Console](https://console.cloud.google.com)にアクセス
+   - 新しいプロジェクトを作成
+
+2. **YouTube Data API v3を有効化**
+   - APIとサービス → ライブラリ
+   - 「YouTube Data API v3」を検索して有効化
+
+3. **OAuth 2.0認証情報を作成**
+   - APIとサービス → 認証情報
+   - 「認証情報を作成」→「OAuth クライアント ID」
+   - アプリケーションの種類：「デスクトップアプリ」
+   - 認証情報JSONをダウンロードし、`youtube_credentials.json`として保存
+
+4. **初回認証**
+   ```bash
+   # 認証テスト
+   docker compose run --rm ai-video-bot python youtube_uploader.py
+
+   # ブラウザが開き、Googleアカウントでログイン
+   # 認証が完了すると youtube_token.pickle が生成される
+   ```
+
+5. **.envでアップロードを有効化**
+   ```env
+   YOUTUBE_UPLOAD_ENABLED=true
+   YOUTUBE_PRIVACY_STATUS=private    # 最初はprivateがおすすめ
+   ```
+
+**注意**: 初回認証時のみブラウザでのログインが必要です。以降は自動で認証されます。
+
 ---
 
 ## 🎥 使い方
@@ -223,12 +265,13 @@ docker compose run --rm ai-video-bot python advanced_video_pipeline.py
 ```
 
 **含まれる機能:**
-- ✅ ElevenLabs STTによる正確な字幕
+- ✅ 高精度なタイミング推定による字幕（オプション：ElevenLabs STTで99%+）
 - ✅ MoviePyによる高品質レンダリング
 - ✅ テンプレート構造の台本
 - ✅ SEO最適化メタデータ
 - ✅ 自動タイムスタンプ生成
 - ✅ キャラクターペルソナコメント
+- ✅ YouTube自動アップロード（オプション）⭐NEW
 
 ### B. Web検索で最新トピック
 
@@ -251,9 +294,34 @@ docker compose run --rm ai-video-bot python advanced_video_pipeline.py
 docker compose run --rm ai-video-bot python daily_video_job.py
 ```
 
-### E. 個別モジュールのテスト
+### E. YouTube自動アップロード⭐NEW
 
 ```bash
+# .envでYouTube設定を有効化してから
+YOUTUBE_UPLOAD_ENABLED=true
+YOUTUBE_PRIVACY_STATUS=private  # または unlisted, public
+
+# 動画生成と同時にYouTubeへ自動アップロード
+docker compose run --rm ai-video-bot python advanced_video_pipeline.py
+```
+
+**アップロード機能:**
+- 動画のアップロード（タイトル・説明文・タグ自動設定）
+- カスタムサムネイルの設定
+- エンゲージメントコメントの自動投稿（最大5件）
+- プレイリストへの自動追加（オプション）
+
+**公開設定:**
+- `private`: 非公開（自分のみ閲覧可能）
+- `unlisted`: 限定公開（URLを知っている人のみ）
+- `public`: 公開（検索・おすすめに表示）
+
+### F. 個別モジュールのテスト
+
+```bash
+# YouTube認証テスト
+docker compose run --rm ai-video-bot python youtube_uploader.py
+
 # テンプレートシステムのテスト
 docker compose run --rm ai-video-bot python content_templates.py
 
@@ -273,32 +341,35 @@ docker compose run --rm ai-video-bot python claude_generator.py
 
 ### 品質 vs 速度のトレードオフ
 
-#### 最高品質（推奨）
+#### 最高品質（ElevenLabs STT使用）
 ```env
-USE_ELEVENLABS_STT=true    # 字幕精度最高
-USE_MOVIEPY=true           # 映像品質最高
+ELEVENLABS_API_KEY=your_key    # 必須
+USE_ELEVENLABS_STT=true        # 字幕精度最高
+USE_MOVIEPY=true               # 映像品質最高
 ```
 - レンダリング時間: 約30-40分
 - 字幕精度: 99%+
 - 視覚品質: プロレベル
+- **注意**: ElevenLabs APIキーが必要
 
-#### バランス型
+#### 高品質（デフォルト・推奨）
 ```env
-USE_ELEVENLABS_STT=true    # 字幕精度高
-USE_MOVIEPY=false          # 速度優先
+USE_ELEVENLABS_STT=false   # タイミング推定
+USE_MOVIEPY=true           # 映像品質高
 ```
 - レンダリング時間: 約20-25分
-- 字幕精度: 99%+
-- 視覚品質: 高品質
+- 字幕精度: 80-90%
+- 視覚品質: プロレベル
+- **推奨**: 追加APIキー不要
 
 #### 速度優先
 ```env
-USE_ELEVENLABS_STT=false   # 推定タイミング
+USE_ELEVENLABS_STT=false   # タイミング推定
 USE_MOVIEPY=false          # 速度優先
 ```
 - レンダリング時間: 約15-20分
 - 字幕精度: 80-90%
-- 視覚品質: 良好
+- 視覚品質: 高品質
 
 ### カスタムテンプレート
 
@@ -442,9 +513,16 @@ USE_MOVIEPY=false
 
 ## 🎯 次のステップ
 
+### 実装済みの機能 ✅
+
+- [x] **YouTube自動アップロード** (YouTube Data API v3) ⭐NEW
+- [x] **高精度字幕同期** (ElevenLabs STT)
+- [x] **高品質レンダリング** (MoviePy)
+- [x] **テンプレートシステム** (4種類の台本構造)
+- [x] **SEO最適化** (タイトル・説明文・タグ)
+
 ### 実装予定の機能
 
-- [ ] **YouTube自動アップロード** (YouTube Data API v3)
 - [ ] **BGM自動生成・追加** (Suno AI / MusicGen)
 - [ ] **A/Bテストサムネイル** (複数バリアント)
 - [ ] **クラウドデプロイ** (Render / AWS / GCP)
@@ -455,12 +533,13 @@ USE_MOVIEPY=false
 
 1. ✅ テスト動画を1本生成
 2. ✅ 生成結果を確認（品質・タイミング）
-3. ✅ 設定を最適化（品質 vs 速度）
-4. ✅ バッチ生成を開始（2-4本/日）
-5. ✅ 定期実行を設定（cron）
-6. ✅ YouTube にアップロード
-7. ✅ アナリティクスで効果測定
-8. ✅ テンプレートを改善
+3. ✅ YouTube API認証を設定（初回のみ）
+4. ✅ 設定を最適化（品質 vs 速度）
+5. ✅ バッチ生成を開始（2-4本/日）
+6. ✅ 定期実行を設定（cron）
+7. ✅ YouTube自動アップロード有効化 ⭐NEW
+8. ✅ アナリティクスで効果測定
+9. ✅ テンプレートを改善
 
 ---
 

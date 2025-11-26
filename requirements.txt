@@ -11,3 +11,7 @@ moviepy>=1.0.3
 
 # For accurate subtitle timing
 # Note: ElevenLabs API requires an API key
+
+# YouTube Data API v3 integration
+google-auth-oauthlib>=1.0.0
+google-api-python-client>=2.100.0

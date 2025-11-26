@@ -4,6 +4,10 @@ outputs/
 # Environment
 .env
 
+# YouTube API credentials
+youtube_credentials.json
+youtube_token.pickle
+
 # Python
 __pycache__/
 *.py[cod]

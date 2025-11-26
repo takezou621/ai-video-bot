@@ -1,6 +1,6 @@
 """
 Advanced Video Generation Pipeline
-Integrates all the blog's features: web search, Claude AI, thumbnails, notifications, tracking
+Integrates all the blog's features: web search, Claude AI, thumbnails, notifications, tracking, YouTube upload
 """
 import os
 import datetime
@@ -38,6 +38,7 @@ from metadata_generator import (
     generate_title_variations,
     generate_engagement_comments
 )
+from youtube_uploader import upload_video_with_metadata
 
 BASE = Path(__file__).parent
 OUT = BASE / "outputs"
@@ -50,7 +51,19 @@ def generate_single_video(
     use_web_search: bool = True
 ) -> dict:
     """
-    Generate a single video with all advanced features
+    Generate a single video with all advanced features including YouTube upload
+
+    10-Step Pipeline:
+    1. Web Search: Discover trending topics
+    2. Script Generation: Create dialogue with Claude
+    3. Image Generation: Generate background image
+    4. Audio Generation: Create dialogue audio with TTS
+    5. Video Assembly: Combine audio, image, and subtitles
+    6. Metadata Generation: Create YouTube-optimized metadata
+    7. Comments Generation: Generate engagement comments
+    8. Thumbnail Creation: Create custom thumbnail
+    9. Tracking: Log to Google Sheets
+    10. YouTube Upload: Automatically upload to YouTube (optional)
 
     Args:
         video_number: Video number for this session
@@ -72,7 +85,7 @@ def generate_single_video(
 
     try:
         # Step 1: Discover trending topic (Blog's Prompt A)
-        print("[1/9] 🔍 Searching for trending topics...")
+        print("[1/10] 🔍 Searching for trending topics...")
         if use_web_search:
             search_results = search_trending_topics(topic_category)
             topic_analysis = select_topic_with_claude(search_results, duration_minutes)
@@ -95,7 +108,7 @@ def generate_single_video(
         notify_video_start(video_number, topic_title, duration_minutes)
 
         # Step 2: Generate dialogue script (Blog's Prompt B)
-        print("\n[2/9] ✍️  Generating dialogue script with Claude...")
+        print("\n[2/10] ✍️  Generating dialogue script with Claude...")
         script = generate_dialogue_script_with_claude(topic_analysis, duration_minutes)
         print(f"  Title: {script['title']}")
         print(f"  Dialogues: {len(script['dialogues'])} exchanges")
@@ -105,7 +118,7 @@ def generate_single_video(
                   ensure_ascii=False, indent=2)
 
         # Step 3: Generate background image
-        print("\n[3/9] 🎨 Generating background image...")
+        print("\n[3/10] 🎨 Generating background image...")
         bg_path = outdir / "background.png"
         bg_prompt = script.get("background_prompt",
             "Cozy Japanese room, Lo-fi anime style, warm lighting, desk with lamp, peaceful atmosphere")
@@ -113,7 +126,7 @@ def generate_single_video(
         print(f"  Background saved: {bg_path}")
 
         # Step 4: Generate audio with dialogue
-        print("\n[4/9] 🎙️  Generating dialogue audio with Gemini TTS...")
+        print("\n[4/10] 🎙️  Generating dialogue audio with Gemini TTS...")
         audio_path = outdir / "dialogue"
         audio_file, timing_data = generate_dialogue_audio(script["dialogues"], audio_path)
         print(f"  Audio saved: {audio_file}")
@@ -124,7 +137,7 @@ def generate_single_video(
                   ensure_ascii=False, indent=2)
 
         # Step 5: Create video with subtitles
-        print("\n[5/9] 🎬 Creating video with subtitles...")
+        print("\n[5/10] 🎬 Creating video with subtitles...")
         if USE_MOVIEPY:
             print("  Using MoviePy for high-quality rendering...")
         video_path = outdir / "video.mp4"
@@ -139,7 +152,7 @@ def generate_single_video(
         video_duration = float(result.stdout.strip()) if result.stdout.strip() else 0
 
         # Step 6: Generate metadata with templates
-        print("\n[6/9] 📝 Generating metadata with Claude + Templates...")
+        print("\n[6/10] 📝 Generating metadata with Claude + Templates...")
         claude_metadata = generate_metadata_with_claude(script, video_duration)
 
         # Enhance with template system
@@ -157,7 +170,7 @@ def generate_single_video(
                   ensure_ascii=False, indent=2)
 
         # Step 7: Generate engagement comments with templates
-        print("\n[7/9] 💬 Generating engagement comments...")
+        print("\n[7/10] 💬 Generating engagement comments...")
 
         # Get Claude-generated comments
         claude_comments = generate_comments_with_claude(script, count=3)
@@ -172,7 +185,7 @@ def generate_single_video(
         print(f"  Generated {len(comments)} comments (Claude: {len(claude_comments)}, Template: {len(template_comments)})")
 
         # Step 8: Generate thumbnail
-        print("\n[8/9] 🖼️  Generating thumbnail...")
+        print("\n[8/10] 🖼️  Generating thumbnail...")
         thumbnail_text = script.get("thumbnail_text", topic_title[:10])
         thumbnail_path = outdir / "thumbnail.jpg"
         create_thumbnail(
@@ -185,7 +198,7 @@ def generate_single_video(
         print(f"  Thumbnail saved: {thumbnail_path}")
 
         # Step 9: Log to tracking system
-        print("\n[9/9] 📊 Logging to tracking system...")
+        print("\n[9/10] 📊 Logging to tracking system...")
         log_entry = create_video_log_entry(
             video_id=video_id,
             title=script["title"],
@@ -196,6 +209,42 @@ def generate_single_video(
             status="generated"
         )
         log_video_to_sheets(log_entry)
+
+        # Step 10: Upload to YouTube (optional)
+        youtube_result = None
+        youtube_upload_enabled = os.getenv("YOUTUBE_UPLOAD_ENABLED", "false").lower() == "true"
+
+        if youtube_upload_enabled:
+            print("\n[10/10] 📤 Uploading to YouTube...")
+            try:
+                privacy_status = os.getenv("YOUTUBE_PRIVACY_STATUS", "private")
+                playlist_id = os.getenv("YOUTUBE_PLAYLIST_ID", "")
+
+                # Extract comments text from comments list
+                comment_texts = [c.get("comment", c.get("text", "")) for c in comments if isinstance(c, dict)]
+                if not comment_texts:
+                    comment_texts = [str(c) for c in comments if c]
+
+                youtube_result = upload_video_with_metadata(
+                    video_path=str(video_path),
+                    metadata=metadata,
+                    thumbnail_path=str(thumbnail_path),
+                    comments=comment_texts[:5],  # Limit to 5 comments
+                    privacy_status=privacy_status,
+                    playlist_id=playlist_id if playlist_id else None
+                )
+
+                if youtube_result:
+                    print(f"✅ YouTube upload complete!")
+                    print(f"   Video URL: {youtube_result['video_url']}")
+                else:
+                    print("⚠️  YouTube upload failed - continuing without upload")
+
+            except Exception as e:
+                print(f"⚠️  YouTube upload error: {e}")
+                print("   Continuing without upload...")
+        else:
+            print("\n[10/10] ⏭️  YouTube upload disabled (set YOUTUBE_UPLOAD_ENABLED=true to enable)")
 
         # Save complete manifest
         manifest = {
@@ -212,6 +261,7 @@ def generate_single_video(
                 "thumbnail": str(thumbnail_path),
             },
             "duration_seconds": video_duration,
+            "youtube_upload": youtube_result,
             "created_at": datetime.datetime.now().isoformat()
         }
         json.dump(manifest, open(outdir / "manifest.json", "w", encoding="utf-8"),
@@ -223,6 +273,8 @@ def generate_single_video(
         print(f"\n✅ Video #{video_number} Complete!")
         print(f"   Output: {video_path}")
         print(f"   Duration: {int(video_duration // 60)}:{int(video_duration % 60):02d}")
+        if youtube_result:
+            print(f"   YouTube: {youtube_result['video_url']}")
 
         return manifest
 

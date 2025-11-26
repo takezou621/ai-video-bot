@@ -56,10 +56,15 @@ docker compose build
 - `TOPIC_CATEGORY`: Topic category (economics, technology, culture, lifestyle)
 - `USE_WEB_SEARCH`: Enable/disable web search for trending topics (true/false)
 
-**Quality Settings (New):**
+**Quality Settings:**
 - `USE_ELEVENLABS_STT`: Enable ElevenLabs STT for accurate subtitle timing (true/false, requires API key)
 - `USE_MOVIEPY`: Enable MoviePy for higher quality rendering (true/false, slower but better quality)
 - `ELEVENLABS_API_KEY`: API key for ElevenLabs STT (optional, improves subtitle accuracy)
+
+**YouTube Upload Settings (New):**
+- `YOUTUBE_UPLOAD_ENABLED`: Enable automatic YouTube upload (true/false, requires OAuth setup)
+- `YOUTUBE_PRIVACY_STATUS`: Privacy setting for uploads (private/unlisted/public)
+- `YOUTUBE_PLAYLIST_ID`: Optional playlist ID to add videos to
 
 ## Architecture
 
@@ -68,22 +73,23 @@ docker compose build
 1. **Simple Mode** (`daily_video_job.py`): Legacy 4-step pipeline with fixed topics
    - Gemini-based script generation → Image → Audio → Video
 
-2. **Advanced Mode** (`advanced_video_pipeline.py`): Full 9-step production pipeline
-   - Web search → Claude script → Image → Audio → Video → Metadata → Comments → Thumbnail → Tracking
+2. **Advanced Mode** (`advanced_video_pipeline.py`): Full 10-step production pipeline
+   - Web search → Claude script → Image → Audio → Video → Metadata → Comments → Thumbnail → Tracking → YouTube Upload
 
-### 9-Step Advanced Pipeline
+### 10-Step Advanced Pipeline
 
-The advanced pipeline mirrors the Zenn article's proven approach:
+The advanced pipeline provides complete automation from topic discovery to YouTube publishing:
 
 1. **Web Search** (`web_search.py`): Discovers trending topics via Serper API
 2. **Topic Selection** (`web_search.py`): Claude analyzes and selects optimal topic
 3. **Script Generation** (`claude_generator.py`): Claude Opus/Sonnet creates dialogue
 4. **Image Generation** (`nano_banana_client.py`): DALL-E 3 creates Lo-fi anime backgrounds
 5. **Audio Generation** (`tts_generator.py`): Gemini TTS produces podcast-style audio
-6. **Video Assembly** (`video_maker.py`): FFmpeg combines audio + background + subtitles
+6. **Video Assembly** (`video_maker.py` / `video_maker_moviepy.py`): FFmpeg/MoviePy combines audio + background + subtitles
 7. **Metadata Generation** (`claude_generator.py`): Claude creates SEO-optimized titles/descriptions
 8. **Comment Generation** (`claude_generator.py`): Claude creates engagement comments
-9. **Tracking** (`tracking.py`, `notifications.py`): Logs to Sheets/JSON, sends Slack notifications
+9. **Thumbnail Creation** (`thumbnail_generator.py`): Creates custom YouTube thumbnail
+10. **Tracking & Upload** (`tracking.py`, `notifications.py`, `youtube_uploader.py`): Logs to Sheets/JSON, sends Slack notifications, uploads to YouTube (optional)
 
 ### Key Module Responsibilities
 
@@ -104,6 +110,7 @@ The advanced pipeline mirrors the Zenn article's proven approach:
 **Operations:**
 - `notifications.py`: Slack webhook notifications (start, complete, error, daily summary)
 - `tracking.py`: Logs to Google Sheets or local JSON/CSV
+- `youtube_uploader.py`: **NEW** YouTube Data API v3 integration for automatic uploads, thumbnail setting, and comment posting
 - `advanced_video_pipeline.py`: Main orchestrator with error handling and batch processing
 - `daily_video_job.py`: Simple orchestrator (legacy)
 
@@ -136,6 +143,7 @@ outputs/YYYY-MM-DD/video_NNN/
 - **Serper API**: Web search for trending topics (fallback topics available)
 - **Slack**: Webhook notifications
 - **Google Sheets**: Production logging (fallback to local JSON)
+- **YouTube Data API v3**: **NEW** Automatic video upload, thumbnail setting, comment posting (requires OAuth 2.0 authentication)
 
 ### Fallback Strategy
 
@@ -143,7 +151,8 @@ The system gracefully degrades when APIs are unavailable:
 - Claude unavailable → Falls back to Gemini for script generation
 - Gemini TTS unavailable → Falls back to gTTS (Google Text-to-Speech)
 - Web search unavailable → Uses predefined fallback topics
-- All services have hardcoded fallbacks to ensure generation never fails
+- YouTube upload unavailable → Continues without upload (video saved locally)
+- All services have hardcoded fallbacks to ensure generation never fails completely
 
 ## Audio Timing System
 
@@ -210,6 +219,9 @@ docker compose run --rm ai-video-bot python claude_generator.py
 
 # Test thumbnail generation
 docker compose run --rm ai-video-bot python thumbnail_generator.py
+
+# Test YouTube authentication
+docker compose run --rm ai-video-bot python youtube_uploader.py
 ```
 
 These execute the `if __name__ == "__main__"` blocks with test data.
@@ -222,6 +234,8 @@ Core Python packages:
 - `gTTS`: Fallback TTS
 - `Pillow`: Image manipulation and subtitle rendering
 - `python-dotenv`: Environment variable management
+- `google-auth-oauthlib`: **NEW** OAuth 2.0 authentication for YouTube API
+- `google-api-python-client`: **NEW** YouTube Data API v3 client
 
 System dependencies:
 - `ffmpeg`: Audio/video processing
@@ -251,12 +265,19 @@ Per the Zenn article, approximate costs for 4 videos/day:
 
 The article reports advertising revenue exceeded API costs.
 
+## Recent Implementations
+
+The following features have been recently implemented:
+- ✅ **YouTube Data API v3 integration** (`youtube_uploader.py`): Automatic video uploads, thumbnail setting, and comment posting with OAuth 2.0 authentication
+- ✅ **ElevenLabs STT integration** (`elevenlabs_stt.py`): Accurate subtitle synchronization
+- ✅ **MoviePy rendering** (`video_maker_moviepy.py`): High-quality video rendering with fade effects
+- ✅ **Template system** (`content_templates.py`): Script structures, title patterns, and persona-based comments
+
 ## Future Extension Points
 
 The README mentions these planned features:
-- YouTube Data API v3 integration for automatic uploads
 - BGM generation/addition (Suno AI / MusicGen)
-- Whisper API for improved subtitle synchronization
+- Whisper API for improved subtitle synchronization (alternative to ElevenLabs)
 - A/B testing for thumbnails
 - Cloud deployment (Render, AWS, GCP)
 - GitHub Actions CI/CD

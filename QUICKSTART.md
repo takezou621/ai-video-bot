@@ -44,7 +44,7 @@ ls -la outputs/$(date +%Y-%m-%d)/video_001/
 
 ## 🎁 含まれる機能（デフォルト）
 
-✅ **ElevenLabs STT統合**: 字幕が音声と完璧に同期（APIキーがあれば）
+✅ **高品質な字幕**: 音声長に基づく正確なタイミング推定
 ✅ **MoviePy高品質レンダリング**: プロレベルの仕上がり
 ✅ **テンプレート構造**: 実証済みシナリオパターン
 ✅ **SEO最適化メタデータ**: CTR 8-12%目標のタイトル
@@ -77,9 +77,10 @@ ls -la outputs/$(date +%Y-%m-%d)/video_001/
 
 ## ⭐ オプション機能を有効にする
 
-### ElevenLabs STT（字幕精度99%+）
+### ElevenLabs STT（字幕精度99%+）⭐ オプション
 
-字幕を音声と完璧に同期させたい場合：
+デフォルトでは、音声の長さに基づいた高精度なタイミング推定を使用します（精度80-90%）。
+さらに字幕を音声と完璧に同期させたい場合は、ElevenLabs STTを有効化できます：
 
 1. [ElevenLabs](https://elevenlabs.io/) でアカウント作成
 2. APIキーを取得
@@ -91,6 +92,7 @@ USE_ELEVENLABS_STT=true
 ```
 
 **効果**: 字幕精度 80-90% → 99%+
+**注意**: APIキーがない場合は自動的にタイミング推定にフォールバックします
 
 ### Web検索で最新トピックを自動発見
 
@@ -142,21 +144,34 @@ TOPIC_CATEGORY=technology    # technology, culture, lifestyle等
 
 ### 品質 vs 速度を調整
 
-#### 最高品質（推奨）
+#### 最高品質（ElevenLabs使用）
 ```env
-USE_ELEVENLABS_STT=true    # 字幕精度最高
-USE_MOVIEPY=true           # 映像品質最高
+ELEVENLABS_API_KEY=your_key    # 必須
+USE_ELEVENLABS_STT=true        # 字幕精度最高
+USE_MOVIEPY=true               # 映像品質最高
 ```
 - 時間: 約30-40分
 - 品質: プロレベル
+- 字幕: 99%+
+
+#### 高品質（デフォルト・推奨）
+```env
+USE_ELEVENLABS_STT=false   # タイミング推定
+USE_MOVIEPY=true           # 映像品質高
+```
+- 時間: 約20-25分
+- 品質: プロレベル
+- 字幕: 80-90%
+- **追加APIキー不要**
 
 #### 速度優先
 ```env
-USE_ELEVENLABS_STT=false   # 推定タイミング
+USE_ELEVENLABS_STT=false   # タイミング推定
 USE_MOVIEPY=false          # 高速レンダリング
 ```
 - 時間: 約15-20分
-- 品質: 良好
+- 品質: 高品質
+- 字幕: 80-90%
 
 ---
 
@@ -169,8 +184,8 @@ USE_MOVIEPY=false          # 高速レンダリング
 - `CLAUDE_API_KEY` - 台本生成（推奨）
 - `OPENAI_API_KEY` - 画像生成
 
-**オプション:**
-- `ELEVENLABS_API_KEY` - 字幕精度向上（推奨）
+**オプション（なくても動作します）:**
+- `ELEVENLABS_API_KEY` - 字幕精度向上（80-90% → 99%+）
 - `SERPER_API_KEY` - トレンド自動発見
 - `SLACK_WEBHOOK_URL` - 通知
 

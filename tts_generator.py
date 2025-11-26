@@ -10,7 +10,17 @@ from pathlib import Path
 from typing import List, Dict, Tuple
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-USE_ELEVENLABS_STT = os.getenv("USE_ELEVENLABS_STT", "true").lower() == "true"
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+
+# Only enable ElevenLabs STT if both flag is true AND API key is present
+USE_ELEVENLABS_STT_ENV = os.getenv("USE_ELEVENLABS_STT", "false").lower() == "true"
+USE_ELEVENLABS_STT = USE_ELEVENLABS_STT_ENV and bool(ELEVENLABS_API_KEY)
+
+# Log status on module load
+if USE_ELEVENLABS_STT_ENV and not ELEVENLABS_API_KEY:
+    print("[INFO] ElevenLabs STT is enabled in .env but API key is missing. Using timing estimation instead.")
+elif not USE_ELEVENLABS_STT_ENV:
+    print("[INFO] ElevenLabs STT is disabled. Using timing estimation for subtitles.")
 
 def generate_dialogue_audio(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[Dict]]:
     """
