@@ -1,0 +1,10 @@
+services:
+  ai-video-bot:
+    build: .
+    container_name: ai-video-bot
+    env_file:
+      - .env
+    volumes:
+      - ./outputs:/app/outputs
+    working_dir: /app
+    command: ["python", "daily_video_job.py"]

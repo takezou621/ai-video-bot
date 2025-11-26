@@ -1,0 +1,4 @@
+requests
+gTTS
+python-dotenv
+Pillow
