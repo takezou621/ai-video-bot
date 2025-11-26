@@ -25,8 +25,13 @@ FPS = 30
 
 # Subtitle styling
 FONT_SIZE = 56
-SPEAKER_A_COLOR = '#78C8FF'
-SPEAKER_B_COLOR = '#FFC878'
+# Male speaker: Blue accent
+MALE_COLOR = '#78C8FF'
+# Female speaker: Pink accent
+FEMALE_COLOR = '#FF96B4'
+# Legacy color names for backward compatibility
+SPEAKER_A_COLOR = MALE_COLOR
+SPEAKER_B_COLOR = FEMALE_COLOR
 TEXT_COLOR = 'white'
 BG_COLOR = 'rgba(20,20,30,0.85)'
 
@@ -80,7 +85,13 @@ def make_podcast_video_moviepy(
             continue
 
         # Choose color based on speaker
-        color = SPEAKER_A_COLOR if speaker == "A" else SPEAKER_B_COLOR
+        # Support both new format (男性/女性) and legacy format (A/B)
+        if speaker in ["男性", "A"]:
+            color = MALE_COLOR
+        elif speaker in ["女性", "B"]:
+            color = FEMALE_COLOR
+        else:
+            color = MALE_COLOR  # Default to male color
 
         try:
             # Create text clip with MoviePy

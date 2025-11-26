@@ -17,8 +17,13 @@ FONT_SIZE = 52
 SUBTITLE_MARGIN = 60
 BOX_PADDING = 30
 BOX_OPACITY = 200
-SPEAKER_A_COLOR = (120, 200, 255)
-SPEAKER_B_COLOR = (255, 200, 120)
+# Male speaker: Blue accent
+MALE_COLOR = (120, 200, 255)
+# Female speaker: Pink accent
+FEMALE_COLOR = (255, 150, 180)
+# Legacy color names for backward compatibility
+SPEAKER_A_COLOR = MALE_COLOR
+SPEAKER_B_COLOR = FEMALE_COLOR
 TEXT_COLOR = (255, 255, 255)
 
 
@@ -99,7 +104,14 @@ def create_frame_with_subtitle(
     )
 
     # Draw speaker indicator bar
-    bar_color = SPEAKER_A_COLOR if speaker == "A" else SPEAKER_B_COLOR
+    # Support both new format (男性/女性) and legacy format (A/B)
+    if speaker in ["男性", "A"]:
+        bar_color = MALE_COLOR
+    elif speaker in ["女性", "B"]:
+        bar_color = FEMALE_COLOR
+    else:
+        bar_color = MALE_COLOR  # Default to male color
+
     draw.rectangle(
         [(SUBTITLE_MARGIN, box_y),
          (SUBTITLE_MARGIN + 8, box_y + box_height)],

@@ -27,7 +27,7 @@ def generate_dialogue_audio(dialogues: List[Dict], output_path: Path) -> Tuple[P
     Generate podcast-style dialogue audio using Gemini TTS.
 
     Args:
-        dialogues: List of {"speaker": "A/B", "text": "..."}
+        dialogues: List of {"speaker": "A/B/男性/女性", "text": "..."}
         output_path: Path to save the audio file
 
     Returns:
@@ -41,7 +41,14 @@ def generate_dialogue_audio(dialogues: List[Dict], output_path: Path) -> Tuple[P
     # Combine dialogues into a script format for Gemini
     script_parts = []
     for d in dialogues:
-        speaker = "Speaker 1" if d["speaker"] == "A" else "Speaker 2"
+        # Support both new format (男性/女性) and legacy format (A/B)
+        speaker_label = d["speaker"]
+        if speaker_label in ["A", "男性"]:
+            speaker = "Speaker 1"
+        elif speaker_label in ["B", "女性"]:
+            speaker = "Speaker 2"
+        else:
+            speaker = "Speaker 1"  # Default
         script_parts.append(f"{speaker}: {d['text']}")
 
     full_script = "\n".join(script_parts)
@@ -157,6 +164,9 @@ def _fallback_tts(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[
 
     for i, d in enumerate(dialogues):
         temp_path = output_path.parent / f"temp_{i}.mp3"
+
+        # Note: gTTS doesn't support different voices for male/female,
+        # but we maintain the speaker label for subtitle rendering
         tts = gTTS(text=d["text"], lang="ja")
         tts.save(str(temp_path))
         temp_files.append(temp_path)
@@ -164,7 +174,7 @@ def _fallback_tts(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[
         # Estimate duration (rough: 150 chars per minute for Japanese)
         duration = max(2.0, len(d["text"]) / 5.0)
         timing_data.append({
-            "speaker": d["speaker"],
+            "speaker": d["speaker"],  # Preserve original speaker label (男性/女性 or A/B)
             "text": d["text"],
             "start": current_time,
             "end": current_time + duration
@@ -229,28 +239,32 @@ def _estimate_timing_scaled(dialogues: List[Dict], actual_duration: float) -> Li
     if total_weight == 0:
         total_weight = 1
 
-    # Leave small gaps between segments (5% of total time for pauses)
-    pause_time = 0.2  # Fixed pause between speakers
+    # Leave minimal gaps between segments for natural flow
+    pause_time = 0.1  # Reduced pause between speakers (was 0.2)
     total_pause_time = pause_time * (len(dialogues) - 1)
     available_speech_time = actual_duration - total_pause_time
 
     if available_speech_time < 0:
-        available_speech_time = actual_duration * 0.95
-        pause_time = (actual_duration * 0.05) / max(1, len(dialogues) - 1)
+        available_speech_time = actual_duration * 0.98  # Use more time (was 0.95)
+        pause_time = (actual_duration * 0.02) / max(1, len(dialogues) - 1)
 
-    # Generate timing data
+    # Generate timing data with slight early offset for better sync
     timing_data = []
     current_time = 0.0
+    offset = 0.1  # Start subtitles slightly early for better perception
 
     for i, d in enumerate(dialogues):
         # Calculate duration proportional to text length
         duration = (weights[i] / total_weight) * available_speech_time
-        duration = max(1.0, duration)  # Minimum 1 second per segment
+        duration = max(0.5, duration)  # Minimum 0.5 second per segment (was 1.0)
+
+        # Apply offset only to non-first segments for natural flow
+        segment_offset = 0 if i == 0 else offset
 
         timing_data.append({
             "speaker": d["speaker"],
             "text": d["text"],
-            "start": current_time,
+            "start": max(0, current_time - segment_offset),
             "end": current_time + duration
         })
 

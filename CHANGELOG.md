@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.1.0] - 2025-11-26
+
+### Added - Male/Female Dialogue Format
+1. **Character-Based Dialogue**
+   - Changed from generic "Speaker A/B" to "男性/女性" (Male/Female)
+   - Male host: 30s, knowledgeable, calm demeanor
+   - Female host: 20s, curious, bright personality
+   - Natural conversational dynamics with distinct character roles
+
+2. **Visual Differentiation**
+   - Male speaker: Blue accent (#78C8FF)
+   - Female speaker: Pink accent (#FF96B4)
+   - Color-coded subtitle indicator bars for instant speaker recognition
+   - Maintained backward compatibility with legacy A/B format
+
+3. **Enhanced TTS Support**
+   - Gemini TTS Speaker 1/2 mapping for male/female voices
+   - Automatic voice differentiation in multi-speaker dialogues
+   - Preserved speaker labels throughout processing pipeline
+
+### Changed
+- `claude_generator.py`: Updated prompts to generate male/female dialogue
+- `video_maker.py`: Added color coding for male/female speakers
+- `video_maker_moviepy.py`: Added color coding for high-quality rendering
+- `tts_generator.py`: Added support for male/female speaker labels
+- `README.md`: Documented male/female dialogue feature
+
+### Benefits
+- **More engaging content**: Character-based dialogue feels more natural
+- **Better viewer retention**: Distinct speaker voices and colors improve comprehension
+- **SEO improvement**: Personality-driven content increases watch time
+
 ## [2.0.1] - 2025-11-26
 
 ### Changed
