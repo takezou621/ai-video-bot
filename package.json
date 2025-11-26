@@ -1,0 +1,17 @@
+{
+  "type": "module",
+  "name": "ai-video-bot",
+  "version": "1.0.0",
+  "description": "**Automated Video Generation System using Claude + Gemini + Python**",
+  "main": "test-upload.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "googleapis": "^166.0.0"
+  }
+}
