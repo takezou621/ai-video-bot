@@ -1,5 +1,6 @@
 """
 Gemini TTS Generator - Podcast-style dialogue audio generation
+Enhanced with ElevenLabs STT for accurate subtitle timing
 """
 import os
 import json
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import List, Dict, Tuple
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+USE_ELEVENLABS_STT = os.getenv("USE_ELEVENLABS_STT", "true").lower() == "true"
 
 def generate_dialogue_audio(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[Dict]]:
     """
@@ -109,7 +111,18 @@ def generate_dialogue_audio(dialogues: List[Dict], output_path: Path) -> Tuple[P
 
                 raw_path.unlink()
 
-                # Get actual audio duration and scale timing accordingly
+                # Get accurate timing using ElevenLabs STT or fallback to estimation
+                if USE_ELEVENLABS_STT:
+                    try:
+                        from elevenlabs_stt import generate_accurate_subtitles
+                        timing_data = generate_accurate_subtitles(dialogues, final_path)
+                        if timing_data:
+                            print("  Using ElevenLabs STT for accurate timing")
+                            return final_path, timing_data
+                    except Exception as e:
+                        print(f"  ElevenLabs STT failed: {e}, using estimation")
+
+                # Fallback to timing estimation
                 actual_duration = _get_audio_duration(final_path)
                 timing_data = _estimate_timing_scaled(dialogues, actual_duration)
                 return final_path, timing_data

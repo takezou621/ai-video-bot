@@ -5,3 +5,9 @@ Pillow
 
 # New dependencies for advanced features
 anthropic>=0.18.0
+
+# High-quality video rendering (optional but recommended)
+moviepy>=1.0.3
+
+# For accurate subtitle timing
+# Note: ElevenLabs API requires an API key

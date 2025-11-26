@@ -8,6 +8,18 @@ AI Video Bot is an automated YouTube video generation system that creates podcas
 
 **Core Value Proposition**: Generates complete, publish-ready videos with minimal human intervention - from topic discovery through final video with thumbnails, metadata, and engagement comments.
 
+## Recent Quality Improvements
+
+The system has been enhanced with high-quality features based on the Zenn article's successful approach:
+
+1. **ElevenLabs STT Integration** (`elevenlabs_stt.py`): Accurate subtitle synchronization by analyzing actual audio
+2. **Enhanced Claude Prompts** (`claude_generator.py`): Optimized for engagement, storytelling, and SEO
+3. **MoviePy Rendering** (`video_maker_moviepy.py`): Higher quality subtitle rendering with fade effects
+4. **Character-based Comments**: 5 distinct personas for authentic engagement
+5. **YouTube SEO Optimization**: CTR-focused titles and search-optimized metadata
+
+See `QUALITY_IMPROVEMENTS.md` for detailed information about these enhancements.
+
 ## Development Commands
 
 ### Running Video Generation
@@ -38,10 +50,16 @@ docker compose build
 
 ### Configuration via .env
 
+**Basic Settings:**
 - `VIDEOS_PER_DAY`: Number of videos to generate (1-4 recommended)
 - `DURATION_MINUTES`: Target video length (5-30 minutes)
 - `TOPIC_CATEGORY`: Topic category (economics, technology, culture, lifestyle)
 - `USE_WEB_SEARCH`: Enable/disable web search for trending topics (true/false)
+
+**Quality Settings (New):**
+- `USE_ELEVENLABS_STT`: Enable ElevenLabs STT for accurate subtitle timing (true/false, requires API key)
+- `USE_MOVIEPY`: Enable MoviePy for higher quality rendering (true/false, slower but better quality)
+- `ELEVENLABS_API_KEY`: API key for ElevenLabs STT (optional, improves subtitle accuracy)
 
 ## Architecture
 
@@ -70,14 +88,16 @@ The advanced pipeline mirrors the Zenn article's proven approach:
 ### Key Module Responsibilities
 
 **Content Generation:**
-- `claude_generator.py`: Three Claude API prompt stages (dialogue script, metadata, comments)
+- `claude_generator.py`: Three Claude API prompt stages with enhanced prompts (dialogue script, SEO metadata, character-based comments)
 - `llm_story.py`: Gemini fallback for script generation
 - `web_search.py`: Serper API integration + Claude-based topic curation
-- `tts_generator.py`: Gemini TTS with gTTS fallback, handles audio timing calculations
+- `tts_generator.py`: Gemini TTS with ElevenLabs STT integration for accurate timing, gTTS fallback
 - `nano_banana_client.py`: DALL-E 3 image generation wrapper
 
 **Video Processing:**
-- `video_maker.py`: FFmpeg orchestration, subtitle rendering with PIL, frame generation
+- `video_maker.py`: FFmpeg orchestration, subtitle rendering with PIL, frame generation (fast)
+- `video_maker_moviepy.py`: **NEW** MoviePy-based rendering with fade effects (high quality)
+- `elevenlabs_stt.py`: **NEW** ElevenLabs Speech-to-Text for accurate subtitle synchronization
 - `subtitle_generator.py`: Legacy subtitle system (not used in new pipeline)
 - `thumbnail_generator.py`: PIL-based thumbnail creation with text overlays
 

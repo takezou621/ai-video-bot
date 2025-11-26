@@ -16,8 +16,15 @@ from claude_generator import (
     generate_comments_with_claude
 )
 from tts_generator import generate_dialogue_audio
-from video_maker import make_podcast_video
 from thumbnail_generator import create_thumbnail
+
+# Import video maker with MoviePy support
+try:
+    from video_maker_moviepy import make_podcast_video
+    USE_MOVIEPY = os.getenv("USE_MOVIEPY", "true").lower() == "true"
+except ImportError:
+    from video_maker import make_podcast_video
+    USE_MOVIEPY = False
 from nano_banana_client import generate_image
 from notifications import (
     notify_video_start,
@@ -113,8 +120,10 @@ def generate_single_video(
 
         # Step 5: Create video with subtitles
         print("\n[5/9] 🎬 Creating video with subtitles...")
+        if USE_MOVIEPY:
+            print("  Using MoviePy for high-quality rendering...")
         video_path = outdir / "video.mp4"
-        make_podcast_video(bg_path, timing_data, audio_file, video_path)
+        make_podcast_video(bg_path, timing_data, audio_file, video_path, use_moviepy=USE_MOVIEPY)
 
         # Get video duration
         import subprocess
