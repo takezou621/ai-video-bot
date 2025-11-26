@@ -33,6 +33,11 @@ from notifications import (
     notify_daily_summary
 )
 from tracking import log_video_to_sheets, create_video_log_entry
+from metadata_generator import (
+    generate_complete_metadata,
+    generate_title_variations,
+    generate_engagement_comments
+)
 
 BASE = Path(__file__).parent
 OUT = BASE / "outputs"
@@ -133,21 +138,38 @@ def generate_single_video(
         ], capture_output=True, text=True)
         video_duration = float(result.stdout.strip()) if result.stdout.strip() else 0
 
-        # Step 6: Generate metadata (Blog's Prompt C)
-        print("\n[6/9] 📝 Generating metadata with Claude...")
-        metadata = generate_metadata_with_claude(script, video_duration)
+        # Step 6: Generate metadata with templates
+        print("\n[6/9] 📝 Generating metadata with Claude + Templates...")
+        claude_metadata = generate_metadata_with_claude(script, video_duration)
+
+        # Enhance with template system
+        metadata = generate_complete_metadata(
+            script=script,
+            timing_data=timing_data,
+            video_duration_seconds=video_duration,
+            claude_metadata=claude_metadata
+        )
         print(f"  YouTube Title: {metadata.get('youtube_title', 'N/A')}")
+        print(f"  Timestamps: {len(metadata.get('timestamps', []))}")
 
         # Save metadata
         json.dump(metadata, open(outdir / "metadata.json", "w", encoding="utf-8"),
                   ensure_ascii=False, indent=2)
 
-        # Step 7: Generate engagement comments (Blog's Prompt D)
+        # Step 7: Generate engagement comments with templates
         print("\n[7/9] 💬 Generating engagement comments...")
-        comments = generate_comments_with_claude(script, count=5)
+
+        # Get Claude-generated comments
+        claude_comments = generate_comments_with_claude(script, count=3)
+
+        # Add template-generated comments
+        template_comments = generate_engagement_comments(script, count=2)
+
+        # Combine both types
+        comments = claude_comments + template_comments
         json.dump({"comments": comments}, open(outdir / "comments.json", "w", encoding="utf-8"),
                   ensure_ascii=False, indent=2)
-        print(f"  Generated {len(comments)} comments")
+        print(f"  Generated {len(comments)} comments (Claude: {len(claude_comments)}, Template: {len(template_comments)})")
 
         # Step 8: Generate thumbnail
         print("\n[8/9] 🖼️  Generating thumbnail...")

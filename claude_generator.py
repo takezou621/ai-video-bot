@@ -1,11 +1,13 @@
 """
 Claude API Integration - Multi-stage content generation
 Based on the Zenn blog's approach using Claude Opus and Sonnet
+Enhanced with template system for consistent, high-quality content
 """
 import os
 import json
 import requests
 from typing import Dict, Any, List
+from content_templates import ContentTemplates
 
 CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
 
@@ -43,7 +45,24 @@ def generate_dialogue_script_with_claude(
         selected_topic = topic_analysis.get("selected_topic", {})
         snippet = selected_topic.get("snippet", "")
 
+        # Get script structure from template
+        script_structure = ContentTemplates.generate_script_structure(
+            topic=title,
+            duration_minutes=duration_minutes,
+            structure_type="standard"
+        )
+
+        # Format structure for prompt
+        structure_desc = "\n".join([
+            f"- {s['type']} ({int(s['duration_seconds'])}秒): {s['purpose']}"
+            for s in script_structure['sections']
+        ])
+
         prompt = f"""あなたは日本のYouTube向けに、経済・ビジネストピックを解説する対話形式ポッドキャストの台本を作成するプロのシナリオライターです。
+
+# 動画構成テンプレート
+以下の構成に沿って台本を作成してください：
+{structure_desc}
 
 # トピック情報
 タイトル: {title}
