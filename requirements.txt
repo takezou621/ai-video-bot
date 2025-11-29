@@ -9,8 +9,12 @@ anthropic>=0.18.0
 # High-quality video rendering (optional but recommended)
 moviepy>=1.0.3
 
-# For accurate subtitle timing
-# Note: ElevenLabs API requires an API key
+# For accurate subtitle timing (100% FREE)
+openai-whisper>=20231117
+# Note: Whisper also requires ffmpeg (already used for video processing)
+# Optional: numba for faster processing (automatically used if available)
+
+# Alternative paid option: ElevenLabs API (requires API key)
 
 # YouTube Data API v3 integration
 google-auth-oauthlib>=1.0.0

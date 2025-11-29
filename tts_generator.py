@@ -12,15 +12,21 @@ from typing import List, Dict, Tuple
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 
-# Only enable ElevenLabs STT if both flag is true AND API key is present
+# Whisper STT (local, free) - prioritized over ElevenLabs
+USE_WHISPER_STT = os.getenv("USE_WHISPER_STT", "true").lower() == "true"
+WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")  # tiny, base, small, medium, large
+
+# ElevenLabs STT (paid API) - fallback if Whisper disabled
 USE_ELEVENLABS_STT_ENV = os.getenv("USE_ELEVENLABS_STT", "false").lower() == "true"
 USE_ELEVENLABS_STT = USE_ELEVENLABS_STT_ENV and bool(ELEVENLABS_API_KEY)
 
-# Log status on module load
-if USE_ELEVENLABS_STT_ENV and not ELEVENLABS_API_KEY:
-    print("[INFO] ElevenLabs STT is enabled in .env but API key is missing. Using timing estimation instead.")
-elif not USE_ELEVENLABS_STT_ENV:
-    print("[INFO] ElevenLabs STT is disabled. Using timing estimation for subtitles.")
+# Log subtitle timing strategy
+if USE_WHISPER_STT:
+    print(f"[INFO] Using Whisper STT (local, FREE) for accurate subtitles - model: {WHISPER_MODEL_SIZE}")
+elif USE_ELEVENLABS_STT:
+    print("[INFO] Using ElevenLabs STT (paid API) for accurate subtitles")
+else:
+    print("[INFO] Using timing estimation for subtitles (less accurate)")
 
 def generate_dialogue_audio(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[Dict]]:
     """
@@ -128,13 +134,35 @@ def generate_dialogue_audio(dialogues: List[Dict], output_path: Path) -> Tuple[P
 
                 raw_path.unlink()
 
-                # Get accurate timing using ElevenLabs STT or fallback to estimation
-                if USE_ELEVENLABS_STT:
+                # Get accurate timing - priority order:
+                # 1. Whisper (local, free, accurate)
+                # 2. ElevenLabs STT (paid API, accurate)
+                # 3. Estimation (free, less accurate)
+
+                timing_data = None
+
+                # Try Whisper first (100% FREE, local processing)
+                if USE_WHISPER_STT and not timing_data:
+                    try:
+                        from whisper_stt import generate_accurate_subtitles_with_whisper
+                        timing_data = generate_accurate_subtitles_with_whisper(
+                            dialogues,
+                            final_path,
+                            model_size=WHISPER_MODEL_SIZE
+                        )
+                        if timing_data:
+                            print("✅ Using Whisper STT for accurate timing (100% FREE)")
+                            return final_path, timing_data
+                    except Exception as e:
+                        print(f"  Whisper STT failed: {e}, trying fallback...")
+
+                # Try ElevenLabs if Whisper failed
+                if USE_ELEVENLABS_STT and not timing_data:
                     try:
                         from elevenlabs_stt import generate_accurate_subtitles
                         timing_data = generate_accurate_subtitles(dialogues, final_path)
                         if timing_data:
-                            print("  Using ElevenLabs STT for accurate timing")
+                            print("  Using ElevenLabs STT for accurate timing (paid API)")
                             return final_path, timing_data
                     except Exception as e:
                         print(f"  ElevenLabs STT failed: {e}, using estimation")
@@ -142,6 +170,7 @@ def generate_dialogue_audio(dialogues: List[Dict], output_path: Path) -> Tuple[P
                 # Fallback to timing estimation
                 actual_duration = _get_audio_duration(final_path)
                 timing_data = _estimate_timing_scaled(dialogues, actual_duration)
+                print("  Using timing estimation (fallback)")
                 return final_path, timing_data
 
         print("No audio in Gemini response, using fallback")

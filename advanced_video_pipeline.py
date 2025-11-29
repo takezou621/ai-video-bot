@@ -220,16 +220,22 @@ def generate_single_video(
                 privacy_status = os.getenv("YOUTUBE_PRIVACY_STATUS", "private")
                 playlist_id = os.getenv("YOUTUBE_PLAYLIST_ID", "")
 
+                # Check if comment posting is enabled
+                post_comments = os.getenv("YOUTUBE_POST_COMMENTS", "false").lower() == "true"
+
                 # Extract comments text from comments list
-                comment_texts = [c.get("comment", c.get("text", "")) for c in comments if isinstance(c, dict)]
-                if not comment_texts:
-                    comment_texts = [str(c) for c in comments if c]
+                comment_texts = None
+                if post_comments:
+                    comment_texts = [c.get("comment", c.get("text", "")) for c in comments if isinstance(c, dict)]
+                    if not comment_texts:
+                        comment_texts = [str(c) for c in comments if c]
+                    comment_texts = comment_texts[:5]  # Limit to 5 comments
 
                 youtube_result = upload_video_with_metadata(
                     video_path=str(video_path),
                     metadata=metadata,
                     thumbnail_path=str(thumbnail_path),
-                    comments=comment_texts[:5],  # Limit to 5 comments
+                    comments=comment_texts,
                     privacy_status=privacy_status,
                     playlist_id=playlist_id if playlist_id else None
                 )

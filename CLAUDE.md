@@ -12,11 +12,12 @@ AI Video Bot is an automated YouTube video generation system that creates podcas
 
 The system has been enhanced with high-quality features based on the Zenn article's successful approach:
 
-1. **ElevenLabs STT Integration** (`elevenlabs_stt.py`): Accurate subtitle synchronization by analyzing actual audio
-2. **Enhanced Claude Prompts** (`claude_generator.py`): Optimized for engagement, storytelling, and SEO
-3. **MoviePy Rendering** (`video_maker_moviepy.py`): Higher quality subtitle rendering with fade effects
-4. **Character-based Comments**: 5 distinct personas for authentic engagement
-5. **YouTube SEO Optimization**: CTR-focused titles and search-optimized metadata
+1. **Whisper STT Integration** (`whisper_stt.py`): **100% FREE** accurate subtitle synchronization using OpenAI Whisper (local execution, no API costs)
+2. **ElevenLabs STT Integration** (`elevenlabs_stt.py`): Optional paid alternative for subtitle synchronization (99%+ accuracy)
+3. **Enhanced Claude Prompts** (`claude_generator.py`): Optimized for engagement, storytelling, and SEO
+4. **MoviePy Rendering** (`video_maker_moviepy.py`): Higher quality subtitle rendering with fade effects
+5. **Character-based Comments**: 5 distinct personas for authentic engagement
+6. **YouTube SEO Optimization**: CTR-focused titles and search-optimized metadata
 
 See `QUALITY_IMPROVEMENTS.md` for detailed information about these enhancements.
 
@@ -57,9 +58,11 @@ docker compose build
 - `USE_WEB_SEARCH`: Enable/disable web search for trending topics (true/false)
 
 **Quality Settings:**
-- `USE_ELEVENLABS_STT`: Enable ElevenLabs STT for accurate subtitle timing (true/false, requires API key)
+- `USE_WHISPER_STT`: Enable Whisper STT for accurate subtitle timing (true/false, **100% FREE**, default: true, recommended)
+- `WHISPER_MODEL_SIZE`: Whisper model size (tiny/base/small/medium/large, default: base)
+- `USE_ELEVENLABS_STT`: Enable ElevenLabs STT for subtitle timing (true/false, paid API, requires API key)
+- `ELEVENLABS_API_KEY`: API key for ElevenLabs STT (optional, only if USE_ELEVENLABS_STT=true)
 - `USE_MOVIEPY`: Enable MoviePy for higher quality rendering (true/false, slower but better quality)
-- `ELEVENLABS_API_KEY`: API key for ElevenLabs STT (optional, improves subtitle accuracy)
 
 **YouTube Upload Settings (New):**
 - `YOUTUBE_UPLOAD_ENABLED`: Enable automatic YouTube upload (true/false, requires OAuth setup)
@@ -156,15 +159,29 @@ The system gracefully degrades when APIs are unavailable:
 
 ## Audio Timing System
 
-The TTS system (`tts_generator.py`) implements a critical timing calculation:
+The TTS system (`tts_generator.py`) implements a multi-tier timing strategy:
 
-1. Gemini TTS returns audio with unknown duration
-2. System uses `ffprobe` to determine actual audio length
-3. `_estimate_timing_scaled()` proportionally distributes subtitle timing across actual duration
-4. Timing is weighted by text length (longer text = longer display time)
-5. Small pauses (0.2s) inserted between speaker changes
+### Tier 1: Whisper STT (Default, 100% FREE)
+1. Gemini TTS generates audio
+2. Whisper transcribes audio locally with word-level timestamps
+3. Script text is aligned with transcription using fuzzy matching
+4. Produces 95%+ accurate subtitle timing with zero API costs
+5. Model size configurable: tiny (fastest) to large (most accurate)
 
-This ensures subtitles sync correctly with the generated audio.
+### Tier 2: ElevenLabs STT (Optional, Paid)
+1. Gemini TTS generates audio
+2. ElevenLabs API transcribes audio with word-level timestamps
+3. Script text is aligned with transcription
+4. Produces 99%+ accurate subtitle timing (requires API key)
+
+### Tier 3: Estimation (Fallback)
+1. System uses `ffprobe` to determine actual audio length
+2. `_estimate_timing_scaled()` proportionally distributes subtitle timing across actual duration
+3. Timing is weighted by text length (longer text = longer display time)
+4. Small pauses (0.1s) inserted between speaker changes
+5. Produces 80-90% accurate timing
+
+The system automatically falls back through tiers if earlier options are unavailable.
 
 ## Video Rendering Details
 

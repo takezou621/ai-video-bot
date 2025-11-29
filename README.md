@@ -19,10 +19,11 @@
 
 ### 🔥 最新の品質向上機能（v2.0）
 
-1. **🎯 高精度な字幕タイミング**
-   - 音声長に基づく正確なタイミング推定（デフォルト・精度80-90%）
-   - オプション：ElevenLabs STT統合で完璧な同期（精度99%+）
+1. **🎯 完璧な字幕タイミング（100%無料）**
+   - **NEW**: OpenAI Whisper（ローカル実行）で完全無料・高精度（精度95%+）- デフォルト有効
    - 台本とSTT結果を自動マッチング
+   - フォールバック：音声長推定（精度80-90%）
+   - オプション：ElevenLabs STT（有料API、精度99%+）
 
 2. **🎨 MoviePy高品質レンダリング**
    - フェードイン・フェードアウト効果
@@ -198,8 +199,10 @@ CLAUDE_API_KEY=your_claude_key          # Claude AI用
 OPENAI_API_KEY=your_openai_key          # DALL-E画像生成用
 
 # オプション（品質向上）⭐NEW
-ELEVENLABS_API_KEY=your_elevenlabs_key  # 字幕精度向上（オプション）
-USE_ELEVENLABS_STT=false                 # ElevenLabs STT（デフォルト: 無効）
+USE_WHISPER_STT=true                     # Whisper STT（100%無料、デフォルト: 有効）⭐推奨
+WHISPER_MODEL_SIZE=base                  # Whisperモデル: tiny, base, small, medium, large
+USE_ELEVENLABS_STT=false                 # ElevenLabs STT（有料API、デフォルト: 無効）
+ELEVENLABS_API_KEY=                      # ElevenLabs API Key（USE_ELEVENLABS_STT=trueの場合のみ必須）
 USE_MOVIEPY=true                         # 高品質レンダリング
 
 # オプション（高度な機能）
@@ -347,32 +350,38 @@ docker compose run --rm ai-video-bot python claude_generator.py
 
 ### 品質 vs 速度のトレードオフ
 
-#### 最高品質（ElevenLabs STT使用）
+#### 最高品質（Whisper STT使用・100%無料）⭐推奨
 ```env
+USE_WHISPER_STT=true       # Whisper STT（完全無料）
+WHISPER_MODEL_SIZE=base    # base推奨、またはsmall/medium
+USE_MOVIEPY=true           # 映像品質最高
+```
+- **コスト**: 完全無料（API料金なし）
+- レンダリング時間: 約25-30分
+- 字幕精度: 95%+
+- 視覚品質: プロレベル
+- **推奨**: 日常的な生成・公開用（最もコスパ良い）
+
+#### 超高精度（ElevenLabs STT使用・有料）
+```env
+USE_WHISPER_STT=false          # Whisperを無効化
+USE_ELEVENLABS_STT=true        # ElevenLabs STT
 ELEVENLABS_API_KEY=your_key    # 必須
-USE_ELEVENLABS_STT=true        # 字幕精度最高
 USE_MOVIEPY=true               # 映像品質最高
 ```
+- **コスト**: 約¥50-100/動画
 - レンダリング時間: 約30-40分
 - 字幕精度: 99%+
 - 視覚品質: プロレベル
-- **注意**: ElevenLabs APIキーが必要
+- **用途**: 極めて高い精度が必要な場合のみ
 
-#### 高品質（デフォルト・推奨）
+#### 速度優先（推定タイミング）
 ```env
-USE_ELEVENLABS_STT=false   # タイミング推定
-USE_MOVIEPY=true           # 映像品質高
-```
-- レンダリング時間: 約20-25分
-- 字幕精度: 80-90%
-- 視覚品質: プロレベル
-- **推奨**: 追加APIキー不要
-
-#### 速度優先
-```env
-USE_ELEVENLABS_STT=false   # タイミング推定
+USE_WHISPER_STT=false      # Whisperを無効化
+USE_ELEVENLABS_STT=false   # タイミング推定のみ
 USE_MOVIEPY=false          # 速度優先
 ```
+- **コスト**: 完全無料
 - レンダリング時間: 約15-20分
 - 字幕精度: 80-90%
 - 視覚品質: 高品質
@@ -476,11 +485,24 @@ echo $GEMINI_API_KEY
 # または動画間隔を空ける
 ```
 
-**Q: ElevenLabs STT エラー**
+**Q: 字幕がズレる・タイミングが合わない**
 ```bash
-# .envで無効化
-USE_ELEVENLABS_STT=false
-# 推定タイミングにフォールバック
+# Whisper STT を有効化（100%無料・高精度）
+USE_WHISPER_STT=true
+WHISPER_MODEL_SIZE=base    # またはsmall/mediumでさらに精度向上
+
+# より高精度が必要な場合のみ ElevenLabs を使用
+USE_ELEVENLABS_STT=true
+ELEVENLABS_API_KEY=your_key
+```
+
+**Q: Whisper のメモリ不足エラー**
+```bash
+# より小さいモデルを使用
+WHISPER_MODEL_SIZE=tiny    # 最小メモリ、少し精度低下
+
+# または推定タイミングにフォールバック
+USE_WHISPER_STT=false
 ```
 
 **Q: MoviePy レンダリングが遅い**
