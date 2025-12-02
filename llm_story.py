@@ -4,7 +4,8 @@ LLM Story Generator - Generates podcast-style dialogue scripts
 import os
 import json
 import requests
-from typing import Dict, Any
+from typing import Dict, Any, List
+from pathlib import Path
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 DEFAULT_DURATION_MINUTES = int(os.getenv("DURATION_MINUTES", "10"))
@@ -42,6 +43,59 @@ TOPIC_PROMPT = """Create an engaging podcast dialogue about: {topic}
 The content should be informative yet conversational, like a friendly discussion between two knowledgeable hosts."""
 
 
+def get_past_topics(max_count: int = 20) -> List[str]:
+    """
+    Get past video topics to avoid duplicates.
+
+    Args:
+        max_count: Maximum number of past topics to retrieve
+
+    Returns:
+        List of past topic titles
+    """
+    past_topics = []
+    outputs_dir = Path(__file__).parent / "outputs"
+
+    if not outputs_dir.exists():
+        return past_topics
+
+    # Scan all date directories
+    for date_dir in sorted(outputs_dir.iterdir(), reverse=True):
+        if not date_dir.is_dir():
+            continue
+
+        # Scan all video directories
+        for video_dir in date_dir.iterdir():
+            if not video_dir.is_dir():
+                continue
+
+            # Try to read metadata or script
+            metadata_file = video_dir / "metadata.json"
+            script_file = video_dir / "script.json"
+
+            try:
+                if metadata_file.exists():
+                    with open(metadata_file, 'r', encoding='utf-8') as f:
+                        metadata = json.load(f)
+                        title = metadata.get("youtube_title", "")
+                        if title:
+                            past_topics.append(title)
+                elif script_file.exists():
+                    with open(script_file, 'r', encoding='utf-8') as f:
+                        script = json.load(f)
+                        title = script.get("title", "")
+                        if title:
+                            past_topics.append(title)
+            except Exception as e:
+                # Skip if file is corrupted
+                continue
+
+            if len(past_topics) >= max_count:
+                return past_topics
+
+    return past_topics
+
+
 def generate_story(topic: str = None, duration_minutes: int = None) -> Dict[str, Any]:
     """
     Generate a podcast-style dialogue script.
@@ -63,6 +117,9 @@ def generate_story(topic: str = None, duration_minutes: int = None) -> Dict[str,
         return _fallback_story(duration_minutes)
 
     try:
+        # Get past topics to avoid duplicates
+        past_topics = get_past_topics(max_count=20)
+
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
 
         prompt = SYSTEM_PROMPT.format(
@@ -71,10 +128,22 @@ def generate_story(topic: str = None, duration_minutes: int = None) -> Dict[str,
             dialogue_count=dialogue_count
         )
 
+        # Add duplicate avoidance instruction
+        if past_topics:
+            prompt += "\n\nIMPORTANT: Avoid topics similar to these past videos:\n"
+            for i, past_topic in enumerate(past_topics[:10], 1):
+                prompt += f"{i}. {past_topic}\n"
+            prompt += "\nCreate a COMPLETELY DIFFERENT topic that has not been covered before.\n"
+
         if topic:
             prompt += "\n\n" + TOPIC_PROMPT.format(topic=topic)
         else:
-            prompt += "\n\nTopic: Interesting facts about daily life in Showa-era Japan (1950s-1980s)"
+            # Generate diverse topics instead of always "Showa-era Japan"
+            topic_categories = os.getenv("TOPIC_CATEGORY", "economics")
+            prompt += f"\n\nTopic: Create an engaging topic about {topic_categories} in Japan. "
+            prompt += "Choose from diverse themes like: modern economy, technology trends, business innovation, "
+            prompt += "financial literacy, startup culture, work culture, industry analysis, consumer trends, etc. "
+            prompt += "Make it current, relevant, and different from past topics."
 
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],

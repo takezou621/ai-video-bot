@@ -17,6 +17,7 @@ from claude_generator import (
 )
 from tts_generator import generate_dialogue_audio
 from thumbnail_generator import create_thumbnail
+from llm_story import get_past_topics
 
 # Import video maker with MoviePy support
 try:
@@ -90,11 +91,26 @@ def generate_single_video(
             search_results = search_trending_topics(topic_category)
             topic_analysis = select_topic_with_claude(search_results, duration_minutes)
         else:
-            # Use fallback topic
+            # Use fallback topic - avoid duplicates with past topics
+            past_topics = get_past_topics(max_count=20)
+
+            # If VIDEO_TOPIC is explicitly set, use it
+            explicit_topic = os.getenv("VIDEO_TOPIC", "")
+
+            if explicit_topic:
+                topic_title = explicit_topic
+            else:
+                # Generate diverse topic suggestion based on category
+                # Leave title empty to let Claude/Gemini generate it with duplicate avoidance
+                topic_title = ""
+                print(f"  Past topics found: {len(past_topics)}")
+                if past_topics:
+                    print(f"  Avoiding duplicates of: {', '.join(past_topics[:3])}...")
+
             topic_analysis = {
-                "title": os.getenv("VIDEO_TOPIC", "昭和時代の日本経済"),
-                "angle": "歴史的な視点から解説",
-                "key_points": ["経済成長", "生活の変化", "技術革新"],
+                "title": topic_title,
+                "angle": f"{topic_category}に関する興味深い視点",
+                "key_points": ["最新トレンド", "実用的な知識", "視聴者の関心"],
             }
 
         topic_title = topic_analysis.get("title", "Unknown Topic")

@@ -8,6 +8,7 @@ import json
 import requests
 from typing import Dict, Any, List
 from content_templates import ContentTemplates
+from llm_story import get_past_topics
 
 CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
 
@@ -38,6 +39,9 @@ def generate_dialogue_script_with_claude(
         char_count = duration_minutes * 300
         dialogue_count = duration_minutes * 6  # ~6 exchanges per minute
 
+        # Get past topics to avoid duplicates
+        past_topics = get_past_topics(max_count=20)
+
         # Get topic details
         title = topic_analysis.get("title", "")
         angle = topic_analysis.get("angle", "")
@@ -58,8 +62,17 @@ def generate_dialogue_script_with_claude(
             for s in script_structure['sections']
         ])
 
-        prompt = f"""あなたは日本のYouTube向けに、経済・ビジネストピックを解説する対話形式ポッドキャストの台本を作成するプロのシナリオライターです。
+        # Build duplicate avoidance section
+        duplicate_avoidance = ""
+        if past_topics:
+            duplicate_avoidance = "\n# ⚠️ 重要: 過去の動画との重複を避けてください\n"
+            duplicate_avoidance += "以下のトピックは既に扱っているため、完全に異なるテーマを選んでください：\n"
+            for i, past_topic in enumerate(past_topics[:10], 1):
+                duplicate_avoidance += f"{i}. {past_topic}\n"
+            duplicate_avoidance += "\n→ これらとは明確に区別できる、新鮮で独自性のあるトピックで台本を作成してください。\n"
 
+        prompt = f"""あなたは日本のYouTube向けに、経済・ビジネストピックを解説する対話形式ポッドキャストの台本を作成するプロのシナリオライターです。
+{duplicate_avoidance}
 # 動画構成テンプレート
 以下の構成に沿って台本を作成してください：
 {structure_desc}
