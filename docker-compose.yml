@@ -6,5 +6,6 @@ services:
       - .env
     volumes:
       - ./outputs:/app/outputs
+      - ./assets:/app/assets
     working_dir: /app
     command: ["python", "daily_video_job.py"]

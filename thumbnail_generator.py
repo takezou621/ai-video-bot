@@ -5,12 +5,23 @@ Based on the blog's automated thumbnail generation
 import os
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
-from typing import Tuple
+from typing import Tuple, Optional
 
 
 # Thumbnail dimensions (YouTube recommended: 1280x720)
 THUMBNAIL_WIDTH = 1280
 THUMBNAIL_HEIGHT = 720
+
+# Character assets
+ASSETS_DIR = Path(__file__).parent / "assets" / "characters"
+MALE_CHARACTER_PATH = ASSETS_DIR / "male_host.png"
+FEMALE_CHARACTER_PATH = ASSETS_DIR / "female_host.png"
+
+# Character display settings
+CHARACTER_HEIGHT = 400  # Large size for visibility
+CHARACTER_SPACING = 20  # Space between characters
+CHARACTER_MARGIN_RIGHT = 40  # Right margin
+CHARACTER_MARGIN_BOTTOM = 20  # Bottom margin
 
 # Text styling
 TITLE_FONT_SIZE = 80
@@ -93,15 +104,72 @@ def add_text_with_shadow(
     draw.text(position, text, font=font, fill=text_color)
 
 
+def add_characters_to_thumbnail(
+    thumbnail: Image.Image,
+    add_characters: bool = True
+) -> Image.Image:
+    """
+    Add Ghibli-style dialogue characters to the bottom-right corner
+
+    Args:
+        thumbnail: Base thumbnail image
+        add_characters: Whether to add characters (default: True)
+
+    Returns:
+        Thumbnail with characters composited
+    """
+    if not add_characters:
+        return thumbnail
+
+    # Check if character files exist
+    if not MALE_CHARACTER_PATH.exists() or not FEMALE_CHARACTER_PATH.exists():
+        print("Warning: Character images not found, skipping character overlay")
+        return thumbnail
+
+    # Load character images
+    try:
+        male_char = Image.open(MALE_CHARACTER_PATH).convert('RGBA')
+        female_char = Image.open(FEMALE_CHARACTER_PATH).convert('RGBA')
+    except Exception as e:
+        print(f"Warning: Failed to load character images: {e}")
+        return thumbnail
+
+    # Resize characters proportionally
+    def resize_character(char_img: Image.Image, target_height: int) -> Image.Image:
+        aspect_ratio = char_img.width / char_img.height
+        new_width = int(target_height * aspect_ratio)
+        return char_img.resize((new_width, target_height), Image.Resampling.LANCZOS)
+
+    male_char = resize_character(male_char, CHARACTER_HEIGHT)
+    female_char = resize_character(female_char, CHARACTER_HEIGHT)
+
+    # Calculate positions (bottom-right corner)
+    # Place female on the right, male on the left
+    female_x = THUMBNAIL_WIDTH - CHARACTER_MARGIN_RIGHT - female_char.width
+    male_x = female_x - CHARACTER_SPACING - male_char.width
+    char_y = THUMBNAIL_HEIGHT - CHARACTER_MARGIN_BOTTOM - CHARACTER_HEIGHT
+
+    # Convert thumbnail to RGBA for compositing
+    thumbnail_rgba = thumbnail.convert('RGBA')
+
+    # Composite characters
+    thumbnail_rgba.paste(male_char, (male_x, char_y), male_char)
+    thumbnail_rgba.paste(female_char, (female_x, char_y), female_char)
+
+    # Convert back to RGB
+    return thumbnail_rgba.convert('RGB')
+
+
 def create_thumbnail(
     background_image_path: Path,
     thumbnail_text: str,
     subtitle_text: str = "",
     output_path: Path = None,
-    accent_color_index: int = 0
+    accent_color_index: int = 0,
+    add_characters: bool = True
 ) -> Path:
     """
-    Create a YouTube thumbnail with text overlay
+    Create a YouTube thumbnail with text overlay and character images
 
     Args:
         background_image_path: Path to background image
@@ -109,6 +177,7 @@ def create_thumbnail(
         subtitle_text: Optional subtitle text
         output_path: Output path for thumbnail
         accent_color_index: Index of accent color (0-3)
+        add_characters: Add Ghibli-style dialogue characters (default: True)
 
     Returns:
         Path to generated thumbnail
@@ -207,6 +276,10 @@ def create_thumbnail(
         fill=accent_color
     )
 
+    # Add dialogue characters to bottom-right
+    if add_characters:
+        bg = add_characters_to_thumbnail(bg, add_characters=True)
+
     # Save thumbnail
     bg.save(output_path, 'JPEG', quality=95, optimize=True)
     print(f"Thumbnail created: {output_path}")
@@ -219,7 +292,8 @@ def create_multiple_thumbnail_variants(
     thumbnail_text: str,
     subtitle_text: str = "",
     output_dir: Path = None,
-    count: int = 3
+    count: int = 3,
+    add_characters: bool = True
 ) -> list:
     """
     Create multiple thumbnail variants with different accent colors
@@ -230,6 +304,7 @@ def create_multiple_thumbnail_variants(
         subtitle_text: Optional subtitle
         output_dir: Output directory
         count: Number of variants to create
+        add_characters: Add dialogue characters (default: True)
 
     Returns:
         List of paths to generated thumbnails
@@ -245,7 +320,8 @@ def create_multiple_thumbnail_variants(
             thumbnail_text,
             subtitle_text,
             output_path,
-            accent_color_index=i
+            accent_color_index=i,
+            add_characters=add_characters
         )
         thumbnails.append(output_path)
 
