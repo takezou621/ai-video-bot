@@ -2,6 +2,7 @@
 Video Maker - Creates podcast-style videos with subtitles
 """
 import subprocess
+import shutil
 from pathlib import Path
 from typing import List, Dict
 from PIL import Image, ImageDraw, ImageFont
@@ -231,9 +232,9 @@ def make_podcast_video(
     # Cleanup
     print("Cleaning up...")
     temp_video.unlink()
-    for f in frames_dir.glob("*.png"):
-        f.unlink()
-    frames_dir.rmdir()
+    # Remove frames directory and all contents
+    if frames_dir.exists():
+        shutil.rmtree(frames_dir)
 
     print(f"Video created: {output_path}")
     return output_path
