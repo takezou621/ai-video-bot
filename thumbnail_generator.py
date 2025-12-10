@@ -18,10 +18,10 @@ MALE_CHARACTER_PATH = ASSETS_DIR / "male_host.png"
 FEMALE_CHARACTER_PATH = ASSETS_DIR / "female_host.png"
 
 # Character display settings
-CHARACTER_HEIGHT = 400  # Large size for visibility
-CHARACTER_SPACING = 20  # Space between characters
-CHARACTER_MARGIN_RIGHT = 40  # Right margin
-CHARACTER_MARGIN_BOTTOM = 20  # Bottom margin
+CHARACTER_HEIGHT = 320
+CHARACTER_SPACING = 24
+CHARACTER_MARGIN_LEFT = 60
+CHARACTER_MARGIN_BOTTOM = 30
 CHARACTER_SHADOW_OFFSET = (18, 18)
 CHARACTER_SHADOW_BLUR = 18
 CHARACTER_SHADOW_COLOR = (0, 0, 0, 160)
@@ -176,18 +176,33 @@ def add_characters_to_thumbnail(
 
     male_char, female_char = characters
 
-    # Calculate positions (bottom-right corner)
-    # Place female on the right, male on the left
-    female_x = THUMBNAIL_WIDTH - CHARACTER_MARGIN_RIGHT - female_char.width
-    male_x = female_x - CHARACTER_SPACING - male_char.width
-    char_y = THUMBNAIL_HEIGHT - CHARACTER_MARGIN_BOTTOM - CHARACTER_HEIGHT
+    cluster_width = male_char.width + female_char.width - 80 + CHARACTER_SPACING
+    cluster_height = CHARACTER_HEIGHT + 140
+    cluster_x = max(0, CHARACTER_MARGIN_LEFT - 60)
+    cluster_y = THUMBNAIL_HEIGHT - CHARACTER_MARGIN_BOTTOM - cluster_height
 
-    # Convert thumbnail to RGBA for compositing
+    bubble = Image.new('RGBA', (cluster_width + 120, cluster_height), (0, 0, 0, 0))
+    bubble_draw = ImageDraw.Draw(bubble)
+    bubble_draw.rounded_rectangle(
+        [(0, 0), (bubble.width, bubble.height)],
+        radius=60,
+        fill=(255, 255, 255, 215)
+    )
+    bubble_draw.ellipse(
+        (20, bubble.height - 80, bubble.width - 20, bubble.height - 10),
+        fill=(0, 0, 0, 40)
+    )
+
     thumbnail_rgba = thumbnail.convert('RGBA')
+    thumbnail_rgba.alpha_composite(bubble, dest=(cluster_x, cluster_y))
 
-    # Composite characters
-    thumbnail_rgba = _paste_with_shadow(thumbnail_rgba, male_char, (male_x, char_y))
-    thumbnail_rgba = _paste_with_shadow(thumbnail_rgba, female_char, (female_x, char_y))
+    male_x = CHARACTER_MARGIN_LEFT + 20
+    male_y = THUMBNAIL_HEIGHT - CHARACTER_MARGIN_BOTTOM - male_char.height
+    female_x = male_x + male_char.width - 80
+    female_y = male_y - 30
+
+    thumbnail_rgba = _paste_with_shadow(thumbnail_rgba, male_char, (male_x, male_y))
+    thumbnail_rgba = _paste_with_shadow(thumbnail_rgba, female_char, (female_x, female_y))
 
     # Convert back to RGB
     return thumbnail_rgba.convert('RGB')
@@ -262,18 +277,15 @@ def create_thumbnail(
     subtitle_font = get_japanese_font(SUBTITLE_FONT_SIZE)
 
     # Calculate text positioning
-    text_margin = 60
-    character_block_width = 0
+    base_margin = 60
+    text_start_x = base_margin
+    max_text_width = THUMBNAIL_WIDTH - base_margin * 2
+    align_center = True
     if characters:
-        character_block_width = (
-            characters[0].width + characters[1].width +
-            CHARACTER_SPACING + CHARACTER_MARGIN_RIGHT + 60
-        )
-
-    if character_block_width:
-        max_text_width = THUMBNAIL_WIDTH - character_block_width - text_margin
-    else:
-        max_text_width = THUMBNAIL_WIDTH - (text_margin * 2)
+        cluster_width = characters[0].width + characters[1].width + 120
+        text_start_x = CHARACTER_MARGIN_LEFT + cluster_width
+        max_text_width = THUMBNAIL_WIDTH - text_start_x - base_margin
+        align_center = False
 
     # Wrap main text
     title_lines = wrap_text(thumbnail_text, title_font, max_text_width)
@@ -290,10 +302,10 @@ def create_thumbnail(
     for line in title_lines:
         bbox = title_font.getbbox(line)
         text_width = bbox[2] - bbox[0]
-        if character_block_width:
-            x = text_margin
-        else:
+        if align_center:
             x = (THUMBNAIL_WIDTH - text_width) // 2
+        else:
+            x = text_start_x
 
         add_text_with_shadow(
             draw, (x, current_y), line, title_font, TEXT_COLOR, shadow_offset=6
@@ -308,10 +320,10 @@ def create_thumbnail(
         for line in subtitle_lines:
             bbox = subtitle_font.getbbox(line)
             text_width = bbox[2] - bbox[0]
-            if character_block_width:
-                x = text_margin
-            else:
+            if align_center:
                 x = (THUMBNAIL_WIDTH - text_width) // 2
+            else:
+                x = text_start_x
 
             add_text_with_shadow(
                 draw, (x, current_y), line, subtitle_font, accent_color, shadow_offset=4
