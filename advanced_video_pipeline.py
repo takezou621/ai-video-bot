@@ -1,6 +1,6 @@
 """
 Advanced Video Generation Pipeline
-Integrates all the blog's features: web search, Claude AI, thumbnails, notifications, tracking, YouTube upload
+Integrates all the blog's features: web search, Gemini AI, thumbnails, notifications, tracking, YouTube upload
 """
 import os
 import datetime
@@ -56,7 +56,7 @@ def generate_single_video(
 
     10-Step Pipeline:
     1. Web Search: Discover trending topics
-    2. Script Generation: Create dialogue with Claude
+    2. Script Generation: Create dialogue with Gemini
     3. Image Generation: Generate background image
     4. Audio Generation: Create dialogue audio with TTS
     5. Video Assembly: Combine audio, image, and subtitles
@@ -101,7 +101,7 @@ def generate_single_video(
                 topic_title = explicit_topic
             else:
                 # Generate diverse topic suggestion based on category
-                # Leave title empty to let Claude/Gemini generate it with duplicate avoidance
+                # Leave title empty to let Gemini generate it with duplicate avoidance
                 topic_title = ""
                 print(f"  Past topics found: {len(past_topics)}")
                 if past_topics:
@@ -124,7 +124,7 @@ def generate_single_video(
         notify_video_start(video_number, topic_title, duration_minutes)
 
         # Step 2: Generate dialogue script (Blog's Prompt B)
-        print("\n[2/10] ✍️  Generating dialogue script with Claude...")
+        print("\n[2/10] ✍️  Generating dialogue script with Gemini...")
         script = generate_dialogue_script_with_claude(topic_analysis, duration_minutes)
         print(f"  Title: {script['title']}")
         print(f"  Dialogues: {len(script['dialogues'])} exchanges")
@@ -168,7 +168,7 @@ def generate_single_video(
         video_duration = float(result.stdout.strip()) if result.stdout.strip() else 0
 
         # Step 6: Generate metadata with templates
-        print("\n[6/10] 📝 Generating metadata with Claude + Templates...")
+        print("\n[6/10] 📝 Generating metadata with Gemini + Templates...")
         claude_metadata = generate_metadata_with_claude(script, video_duration)
 
         # Enhance with template system
@@ -188,7 +188,7 @@ def generate_single_video(
         # Step 7: Generate engagement comments with templates
         print("\n[7/10] 💬 Generating engagement comments...")
 
-        # Get Claude-generated comments
+        # Get Gemini-generated comments
         claude_comments = generate_comments_with_claude(script, count=3)
 
         # Add template-generated comments
@@ -198,7 +198,7 @@ def generate_single_video(
         comments = claude_comments + template_comments
         json.dump({"comments": comments}, open(outdir / "comments.json", "w", encoding="utf-8"),
                   ensure_ascii=False, indent=2)
-        print(f"  Generated {len(comments)} comments (Claude: {len(claude_comments)}, Template: {len(template_comments)})")
+        print(f"  Generated {len(comments)} comments (Gemini: {len(claude_comments)}, Template: {len(template_comments)})")
 
         # Step 8: Generate thumbnail
         print("\n[8/10] 🖼️  Generating thumbnail...")

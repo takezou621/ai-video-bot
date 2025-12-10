@@ -1,6 +1,6 @@
 """
-Claude API Integration - Multi-stage content generation
-Based on the Zenn blog's approach using Claude Opus and Sonnet
+Gemini API Integration - Multi-stage content generation
+Based on the Zenn blog's approach using large language models
 Enhanced with template system for consistent, high-quality content
 """
 import os
@@ -10,7 +10,37 @@ from typing import Dict, Any, List
 from content_templates import ContentTemplates
 from llm_story import get_past_topics
 
-CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+
+
+def _call_gemini(prompt: str, max_output_tokens: int = 8192, temperature: float = 0.9) -> str:
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is not configured")
+
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+    )
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": temperature,
+            "maxOutputTokens": max_output_tokens
+        }
+    }
+    response = requests.post(url, json=payload, timeout=180)
+    response.raise_for_status()
+    data = response.json()
+    if "error" in data:
+        raise RuntimeError(data["error"])
+    candidates = data.get("candidates", [])
+    if not candidates:
+        raise RuntimeError("Gemini returned no candidates")
+    parts = candidates[0].get("content", {}).get("parts", [])
+    if not parts:
+        raise RuntimeError("Gemini response missing content parts")
+    return parts[0].get("text", "")
 
 
 def generate_dialogue_script_with_claude(
@@ -18,7 +48,7 @@ def generate_dialogue_script_with_claude(
     duration_minutes: int = 10
 ) -> Dict[str, Any]:
     """
-    Generate podcast-style dialogue using Claude Opus
+    Generate podcast-style dialogue using Gemini
     (Blog's "Prompt B: Generate dialogue script")
 
     Args:
@@ -32,8 +62,8 @@ def generate_dialogue_script_with_claude(
     named_entity_labels = [entity.get("label") for entity in named_entities if entity.get("label")]
     entity_hint = "、".join(named_entity_labels[:3]) if named_entity_labels else "注目企業名（NVIDIA, OpenAI など）"
 
-    if not CLAUDE_API_KEY:
-        print("Claude API key not found, using Gemini fallback")
+    if not GEMINI_API_KEY:
+        print("Gemini API key not found, using fallback story generator")
         from llm_story import generate_story
         topic_text = topic_analysis.get("title", "")
         script = generate_story(topic=topic_text, duration_minutes=duration_minutes)
@@ -150,25 +180,8 @@ def generate_dialogue_script_with_claude(
 
 JSONのみを出力してください。"""
 
-        url = "https://api.anthropic.com/v1/messages"
-        headers = {
-            "x-api-key": CLAUDE_API_KEY,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json"
-        }
-
-        payload = {
-            "model": "claude-3-5-sonnet-20241022",  # Using Sonnet (Opus can be used for higher quality)
-            "max_tokens": 8192,
-            "temperature": 0.9,
-            "messages": [{"role": "user", "content": prompt}]
-        }
-
-        print("Generating dialogue with Claude...")
-        response = requests.post(url, json=payload, headers=headers, timeout=180)
-        data = response.json()
-
-        content = data["content"][0]["text"]
+        print("Generating dialogue with Gemini...")
+        content = _call_gemini(prompt, max_output_tokens=8192, temperature=0.9)
 
         # Extract JSON
         if "```json" in content:
@@ -189,7 +202,7 @@ JSONのみを出力してください。"""
         return script
 
     except Exception as e:
-        print(f"Claude dialogue generation failed: {e}")
+        print(f"Gemini dialogue generation failed: {e}")
         # Fallback to Gemini
         from llm_story import generate_story
         topic_text = topic_analysis.get("title", "")
@@ -204,7 +217,7 @@ def generate_metadata_with_claude(
     video_duration_seconds: float
 ) -> Dict[str, Any]:
     """
-    Generate enhanced metadata using Claude Sonnet
+    Generate enhanced metadata using Gemini
     (Blog's "Prompt C: Create metadata")
 
     Args:
@@ -214,7 +227,7 @@ def generate_metadata_with_claude(
     Returns:
         Enhanced metadata for YouTube
     """
-    if not CLAUDE_API_KEY:
+    if not GEMINI_API_KEY:
         return _fallback_metadata(script)
 
     try:
@@ -261,23 +274,7 @@ def generate_metadata_with_claude(
 
 JSONのみを出力してください。"""
 
-        url = "https://api.anthropic.com/v1/messages"
-        headers = {
-            "x-api-key": CLAUDE_API_KEY,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json"
-        }
-
-        payload = {
-            "model": "claude-3-5-sonnet-20241022",
-            "max_tokens": 2000,
-            "messages": [{"role": "user", "content": prompt}]
-        }
-
-        response = requests.post(url, json=payload, headers=headers, timeout=60)
-        data = response.json()
-
-        content = data["content"][0]["text"]
+        content = _call_gemini(prompt, max_output_tokens=2048, temperature=0.4)
 
         # Extract JSON
         if "```json" in content:
@@ -315,7 +312,7 @@ def generate_comments_with_claude(
     Returns:
         List of comment texts
     """
-    if not CLAUDE_API_KEY:
+    if not GEMINI_API_KEY:
         return _fallback_comments()
 
     try:
@@ -365,24 +362,7 @@ def generate_comments_with_claude(
 
 JSONのみを出力してください。"""
 
-        url = "https://api.anthropic.com/v1/messages"
-        headers = {
-            "x-api-key": CLAUDE_API_KEY,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json"
-        }
-
-        payload = {
-            "model": "claude-3-5-sonnet-20241022",
-            "max_tokens": 1500,
-            "temperature": 0.9,
-            "messages": [{"role": "user", "content": prompt}]
-        }
-
-        response = requests.post(url, json=payload, headers=headers, timeout=60)
-        data = response.json()
-
-        content = data["content"][0]["text"]
+        content = _call_gemini(prompt, max_output_tokens=1500, temperature=0.8)
 
         # Extract JSON
         if "```json" in content:
@@ -407,7 +387,7 @@ JSONのみを出力してください。"""
 
 
 def _fallback_metadata(script: Dict[str, Any]) -> Dict[str, Any]:
-    """Fallback metadata when Claude is unavailable"""
+    """Fallback metadata when Gemini is unavailable"""
     return {
         "youtube_title": script.get("title", "動画タイトル"),
         "youtube_description": script.get("description", "動画の説明"),

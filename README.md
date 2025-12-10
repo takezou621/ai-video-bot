@@ -36,7 +36,7 @@
    - 自動タイムスタンプ生成
    - 5つのキャラクターペルソナコメント
 
-4. **✨ 強化されたClaudeプロンプト**
+4. **✨ 強化されたGeminiプロンプト**
    - 冒頭15秒フック最適化
    - ストーリー性のある構成
    - エンゲージメント重視の対話
@@ -56,10 +56,10 @@
 
 1. **🔍 トレンドトピック自動発見**
    - Serper API（Google Search）で最新ニュース自動収集
-   - Claude APIで最適なトピックを選定・分析
+   - Gemini APIで最適なトピックを選定・分析
 
 2. **✍️ 高品質な台本生成**
-   - Claude Sonnet 4.5でプロレベルの対話台本
+   - Gemini 2.0 Flashでプロレベルの対話台本
    - テンプレート構造に基づく自然な会話
 
 3. **🎙️ 自然な音声合成**
@@ -100,12 +100,12 @@
 ### 10ステップの完全自動化パイプライン
 
 ```
-1.  Web Search      → トレンドトピック検索・選定 (Serper + Claude)
-2.  Script Gen      → テンプレート構造で台本生成 (Claude Sonnet 4.5)
+1.  Web Search      → トレンドトピック検索・選定 (Serper + Gemini)
+2.  Script Gen      → テンプレート構造で台本生成 (Gemini 2.0 Flash)
 3.  Image Gen       → 背景画像生成 (DALL-E 3)
 4.  Audio Gen       → 音声生成 (Gemini TTS)
 5.  Video Gen       → 高品質動画合成 (FFmpeg + MoviePy) ⭐
-6.  Metadata Gen    → SEO最適化メタデータ (Claude + Templates) ⭐
+6.  Metadata Gen    → SEO最適化メタデータ (Gemini + Templates) ⭐
 7.  Comments Gen    → エンゲージメントコメント (5 Personas) ⭐
 8.  Thumbnail Gen   → サムネイル生成
 9.  Tracking        → Google Sheets / JSON ログ記録
@@ -128,7 +128,7 @@ ai-video-bot/
   ├── advanced_video_pipeline.py      # ⭐ 高度版（推奨）
   │
   ├── # 🤖 AI統合
-  ├── claude_generator.py             # Claude API（テンプレート統合済み）⭐
+  ├── claude_generator.py             # Gemini API（テンプレート統合済み、旧Claude命名）⭐
   ├── web_search.py                   # Web検索・トピック選定
   ├── llm_story.py                    # Gemini台本生成（フォールバック）
   │
@@ -194,8 +194,7 @@ cp .env.sample .env
 
 ```env
 # 必須 API キー
-GEMINI_API_KEY=your_gemini_key          # Gemini TTS用
-CLAUDE_API_KEY=your_claude_key          # Claude AI用
+GEMINI_API_KEY=your_gemini_key          # Gemini TTS/台本/メタデータ用
 OPENAI_API_KEY=your_openai_key          # DALL-E画像生成用
 
 # オプション（品質向上）⭐NEW
@@ -340,7 +339,7 @@ docker compose run --rm ai-video-bot python metadata_generator.py
 # トピック検索のテスト
 docker compose run --rm ai-video-bot python web_search.py
 
-# Claude台本生成のテスト
+# Gemini台本生成のテスト
 docker compose run --rm ai-video-bot python claude_generator.py
 ```
 
@@ -431,7 +430,7 @@ ContentTemplates.SCRIPT_STRUCTURES["custom"] = {
 
 | API | 使用量 | 月額概算 |
 |-----|--------|----------|
-| Claude API (Sonnet 4.5) | ~40,000 tokens/本 | ¥2,000 |
+| Gemini API (Script/Metadata) | ~40,000 tokens/本 | ¥2,000 |
 | Gemini TTS | 10分/本 | ¥1,500 |
 | DALL-E 3 | 4枚/日 | ¥3,600 |
 | Serper API | 120回/月 | ¥500 |
@@ -479,9 +478,9 @@ echo $GEMINI_API_KEY
 # フォールバック: gTTSが自動で使われます
 ```
 
-**Q: Claude APIのレート制限**
+**Q: Gemini APIのレート制限**
 ```bash
-# .envでwait時間を調整（advanced_video_pipeline.py内）
+# .envで待機時間を調整（advanced_video_pipeline.py内）
 # または動画間隔を空ける
 ```
 
@@ -517,14 +516,13 @@ USE_MOVIEPY=false
 ## 📚 ドキュメント
 
 - **[QUICKSTART.md](QUICKSTART.md)** - 5分で始めるクイックガイド
-- **[CLAUDE.md](CLAUDE.md)** - Claude Code用の開発ガイド
+- **[CLAUDE.md](CLAUDE.md)** - （レガシー）Claude Code向けガイド ※Gemini移行後も開発フロー参考
 - **[QUALITY_IMPROVEMENTS.md](QUALITY_IMPROVEMENTS.md)** - 品質向上の詳細
 - **[TEMPLATE_SYSTEM.md](TEMPLATE_SYSTEM.md)** - テンプレートシステムガイド
 - **[TEST_REPORT.md](TEST_REPORT.md)** - テスト結果レポート
 
 ### API ドキュメント
 
-- [Claude API](https://docs.anthropic.com/)
 - [Gemini API](https://ai.google.dev/docs)
 - [DALL-E 3 API](https://platform.openai.com/docs/guides/images)
 - [Serper API](https://serper.dev/docs)
@@ -582,7 +580,7 @@ MIT License
 このプロジェクトは以下の成功事例とオープンソースプロジェクトに基づいています：
 
 - [Zenn記事](https://zenn.dev/xtm_blog/articles/da1eba90525f91) - 実証済みYouTube自動化アーキテクチャ
-- [Claude AI](https://www.anthropic.com/) - 高品質コンテンツ生成
+- [Google Gemini](https://ai.google.dev/) - 高品質コンテンツ生成
 - [Google Gemini](https://ai.google.dev/) - 自然な音声合成
 - [MoviePy](https://zulko.github.io/moviepy/) - 動画処理
 - [FFmpeg](https://ffmpeg.org/) - メディア変換
@@ -595,7 +593,7 @@ MIT License
 
 **成功のポイント：**
 1. ✅ 完全自動化パイプライン（30分で完成）
-2. ✅ 高品質なAI生成（Claude + Gemini + テンプレート）
+2. ✅ 高品質なAI生成（Gemini + テンプレート）
 3. ✅ SEO完全最適化（タイトル・説明文・タグ）
 4. ✅ エンゲージメント設計（5つのペルソナコメント）
 5. ✅ スケーラブルな構成（複数動画/日）

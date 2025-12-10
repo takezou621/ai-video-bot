@@ -157,3 +157,13 @@ All notable changes to this project will be documented in this file.
 - Title CTR: 8-12%
 - Comments per video: 20-50
 - Subscriber rate: 3-5%
+# [2.2.0] - 2025-12-10
+
+### Changed
+- Migrated topic selection, script generation, metadata, and engagement comments to the Gemini API (legacy `claude_*` module names retained for compatibility).
+- Updated `web_search.py` to analyze Serper results with Gemini, preserving named-entity scoring.
+- Refreshed `advanced_video_pipeline.py` logging to reflect the Gemini-first workflow.
+
+### Documentation
+- Removed `CLAUDE_API_KEY` from setup instructions and clarified that `GEMINI_API_KEY` now powers scripts, metadata, and TTS.
+- Updated README/QUICKSTART/QUALITY_IMPROVEMENTS/package metadata to describe the Gemini-based pipeline and marked `CLAUDE.md` as legacy guidance.

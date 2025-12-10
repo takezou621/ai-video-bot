@@ -14,9 +14,8 @@ cp .env.sample .env
 
 ```env
 # 必須（これだけでOK）
-GEMINI_API_KEY=your_gemini_key_here
-CLAUDE_API_KEY=your_claude_key_here
-OPENAI_API_KEY=your_openai_key_here
+GEMINI_API_KEY=your_gemini_key_here   # 台本/メタデータ/音声で使用
+OPENAI_API_KEY=your_openai_key_here   # 画像生成用
 ```
 
 ### ステップ 2: Dockerイメージをビルド
@@ -55,17 +54,11 @@ ls -la outputs/$(date +%Y-%m-%d)/video_001/
 
 ## 📝 各APIキーの取得方法
 
-### Gemini API（音声生成用）- 必須
+### Gemini API（台本・音声生成用）- 必須
 
 1. [Google AI Studio](https://aistudio.google.com/app/apikey) にアクセス
 2. "Get API Key" をクリック
 3. キーをコピーして `.env` の `GEMINI_API_KEY` に設定
-
-### Claude API（台本生成用）- 必須
-
-1. [Anthropic Console](https://console.anthropic.com/) にアクセス
-2. "Get API Keys" から新しいキーを作成
-3. キーをコピーして `.env` の `CLAUDE_API_KEY` に設定
 
 ### OpenAI API（画像生成用）- 必須
 
@@ -180,8 +173,7 @@ USE_MOVIEPY=false          # 高速レンダリング
 ### Q: どのAPIキーが必須ですか？
 
 **必須:**
-- `GEMINI_API_KEY` - 音声生成
-- `CLAUDE_API_KEY` - 台本生成（推奨）
+- `GEMINI_API_KEY` - 台本/メタデータ/音声生成
 - `OPENAI_API_KEY` - 画像生成
 
 **オプション（なくても動作します）:**
@@ -192,8 +184,7 @@ USE_MOVIEPY=false          # 高速レンダリング
 ### Q: 動画1本あたりのコストは？
 
 **基本構成（10分動画）：**
-- Claude API: ¥20〜30
-- Gemini TTS: ¥15〜20
+- Gemini API（台本/メタデータ/TTS）: ¥35〜50
 - DALL-E 3: ¥30
 - **合計: ¥65〜80/本**
 
@@ -230,8 +221,8 @@ docker compose logs
 **"GEMINI_API_KEY is required"**
 → `.env` にGemini APIキーを設定
 
-**"Claude API key not found"**
-→ `.env` にClaude APIキーを設定
+**"Gemini API key not found"**
+→ `.env` にGemini APIキーを設定
 
 **"Docker daemon not running"**
 → Dockerを起動
@@ -322,7 +313,6 @@ USE_MOVIEPY=true           # 映像品質向上
 ```bash
 # 無料枠で試す
 # - Gemini: 無料枠あり
-# - Claude: トライアルクレジット
 # - DALL-E: $5で約166枚生成可能
 ```
 

@@ -1,6 +1,7 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.  
+**Note (2025-12):** The runtime pipeline now uses Gemini for topic/script/metadata/comment generation, but this document remains for historical context and tooling tips.
 
 ## Project Overview
 

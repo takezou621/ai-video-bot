@@ -9,7 +9,8 @@ import requests
 from typing import List, Dict, Any
 from datetime import datetime, timezone
 
-CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")  # Google Search API alternative
 
 # High-priority entities that frequently boost CTR when highlighted in titles
@@ -75,6 +76,35 @@ NAMED_ENTITY_LIBRARY = [
         "priority": 2.6,
     },
 ]
+
+
+def _call_gemini(prompt: str, max_output_tokens: int = 2048, temperature: float = 0.4) -> str:
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is not set")
+
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+    )
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": temperature,
+            "maxOutputTokens": max_output_tokens
+        }
+    }
+    response = requests.post(url, json=payload, timeout=60)
+    response.raise_for_status()
+    data = response.json()
+    if "error" in data:
+        raise RuntimeError(data["error"])
+    candidates = data.get("candidates", [])
+    if not candidates:
+        raise RuntimeError("Gemini response did not include candidates")
+    parts = candidates[0].get("content", {}).get("parts", [])
+    if not parts:
+        raise RuntimeError("Gemini response missing content parts")
+    return parts[0].get("text", "")
 
 
 def search_trending_topics(
@@ -150,8 +180,8 @@ def select_topic_with_claude(
     target_duration_minutes: int = 10
 ) -> Dict[str, Any]:
     """
-    Use Claude to select and analyze the best topic from search results
-    (Similar to the blog's "Prompt A: Web search for current news")
+    Use Gemini to select and analyze the best topic from search results
+    (Same structure as the blog's "Prompt A: Web search for current news")
 
     Args:
         search_results: List of topics from search
@@ -160,8 +190,8 @@ def select_topic_with_claude(
     Returns:
         Selected topic with analysis
     """
-    if not CLAUDE_API_KEY:
-        # Return first topic if no Claude API
+    if not GEMINI_API_KEY:
+        # Return first topic if no Gemini API
         if search_results:
             top = search_results[0]
             return {
@@ -173,7 +203,7 @@ def select_topic_with_claude(
         return _fallback_selected_topic()
 
     try:
-        # Format search results for Claude
+        # Format search results for Gemini
         topics_text = "\n\n".join([
             _format_topic_for_prompt(i, t)
             for i, t in enumerate(search_results[:10])
@@ -198,23 +228,7 @@ def select_topic_with_claude(
 
 JSONのみを出力してください。"""
 
-        url = "https://api.anthropic.com/v1/messages"
-        headers = {
-            "x-api-key": CLAUDE_API_KEY,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json"
-        }
-
-        payload = {
-            "model": "claude-3-5-sonnet-20241022",
-            "max_tokens": 2000,
-            "messages": [{"role": "user", "content": prompt}]
-        }
-
-        response = requests.post(url, json=payload, headers=headers, timeout=60)
-        data = response.json()
-
-        content = data["content"][0]["text"]
+        content = _call_gemini(prompt, max_output_tokens=2048, temperature=0.2)
 
         # Extract JSON
         if "```json" in content:

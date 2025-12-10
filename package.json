@@ -2,7 +2,7 @@
   "type": "module",
   "name": "ai-video-bot",
   "version": "1.0.0",
-  "description": "**Automated Video Generation System using Claude + Gemini + Python**",
+  "description": "**Automated Video Generation System using Gemini + Python**",
   "main": "test-upload.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"

@@ -20,7 +20,7 @@ def generate_complete_metadata(
         script: Generated script
         timing_data: Subtitle timing data
         video_duration_seconds: Video duration
-        claude_metadata: Optional Claude-generated metadata
+        claude_metadata: Optional AI-generated metadata (from Gemini)
 
     Returns:
         Complete metadata package
@@ -58,7 +58,7 @@ def generate_complete_metadata(
         hashtags=claude_metadata.get("hashtags", []) if claude_metadata else ["#経済", "#ビジネス", "#解説"]
     )
 
-    # Combine Claude metadata with template metadata
+    # Combine AI metadata with template metadata
     youtube_title = claude_metadata.get("youtube_title", title) if claude_metadata else title
     youtube_title = _enforce_named_entity_prefix(youtube_title, primary_entity)
 
