@@ -5,12 +5,30 @@ Based on successful YouTube video patterns
 """
 from typing import Dict, Any, List
 import json
+import random
 
 
 class ContentTemplates:
     """
     Comprehensive template system for YouTube video content
     """
+    HOOK_3_SENTENCE_STRUCTURE = {
+        "sentence_1_problem": [
+            "実は、{topic}について、{percentage}%の人が{misconception}と誤解しています。",
+            "今、{topic}で{problem}が起きているのを知っていますか？",
+            "ちょっと待ってください。{topic}、実はこんなことになってます。",
+        ],
+        "sentence_2_data": [
+            "最新のデータによると、{stat}という驚きの結果が出ています。",
+            "{entity}の調査で、{data}が明らかになりました。",
+            "実際の数字を見ると、{numbers}という状況です。",
+        ],
+        "sentence_3_promise": [
+            "この動画を最後まで見ると、{benefit}が分かります。",
+            "今日は{solution}を、5分で解説します。",
+            "{action}する方法を、具体的にお伝えします。",
+        ]
+    }
 
     # Script Structure Templates
     SCRIPT_STRUCTURES = {
@@ -349,6 +367,44 @@ class ContentTemplates:
             "total_duration": duration_minutes * 60,
             "sections": sections
         }
+
+    @staticmethod
+    def generate_three_sentence_hook(
+        topic: str,
+        context: Dict[str, str] = None
+    ) -> List[str]:
+        """Generate hook sentences following the problem→data→promise structure."""
+        ctx = {
+            "topic": topic or "このテーマ",
+            "percentage": "78",
+            "misconception": "本質を見誤っている",
+            "problem": "大きな危機",
+            "stat": "市場の伸び率が3倍",
+            "entity": "最新調査",
+            "data": "過去最速ペースで進行中",
+            "numbers": "たった30日で15%の差",
+            "benefit": "最先端の動きを先取りできます",
+            "solution": "3つの対策",
+            "action": "今日から一歩踏み出す",
+        }
+        if context:
+            ctx.update({k: v for k, v in context.items() if v})
+
+        problem = random.choice(ContentTemplates.HOOK_3_SENTENCE_STRUCTURE["sentence_1_problem"]).format(**ctx)
+        data = random.choice(ContentTemplates.HOOK_3_SENTENCE_STRUCTURE["sentence_2_data"]).format(**ctx)
+        promise = random.choice(ContentTemplates.HOOK_3_SENTENCE_STRUCTURE["sentence_3_promise"]).format(**ctx)
+        return [problem, data, promise]
+
+    @staticmethod
+    def describe_hook_structure(topic: str) -> str:
+        """Return a text snippet describing the required hook format."""
+        example = ContentTemplates.generate_three_sentence_hook(topic)
+        return (
+            "以下の3文構造で冒頭15秒を構成してください：\n"
+            f"1. 問題提起: {example[0]}\n"
+            f"2. データ提示: {example[1]}\n"
+            f"3. 価値約束: {example[2]}"
+        )
 
     @staticmethod
     def generate_title(

@@ -175,6 +175,7 @@ All notable changes to this project will be documented in this file.
 - `thumbnail_generator.py` を改良し、文字とキャラクターのレイアウトを分離＋ドロップシャドウで自然な合成に。
 - `content_templates.py` のタイムスタンプ生成を改良し、重複ラベルや短間隔での繰り返しを抑制。
 - `advanced_video_pipeline.py` にプリフライト検証を追加し、アップロード前に動画・サムネ・メタデータを自動チェック。
+- 15秒フックを問題提起→データ→価値約束の3文構造に統一し、ジェネレータと検証ロジックを追加。
 
 ### Added
 - `pre_upload_checks.py`: ファイルサイズ、タイトル/タイムスタンプ、タイミング整合性などを検査する安全弁。

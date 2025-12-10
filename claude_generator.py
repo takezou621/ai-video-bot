@@ -5,6 +5,7 @@ Enhanced with template system for consistent, high-quality content
 """
 import os
 import json
+import re
 import requests
 from typing import Dict, Any, List
 from content_templates import ContentTemplates
@@ -85,6 +86,7 @@ def generate_dialogue_script_with_claude(
         key_points = topic_analysis.get("key_points", [])
         selected_topic = topic_analysis.get("selected_topic", {})
         snippet = selected_topic.get("snippet", "")
+        hook_description = ContentTemplates.describe_hook_structure(title or "このトピック")
 
         # Get script structure from template
         script_structure = ContentTemplates.generate_script_structure(
@@ -134,6 +136,15 @@ def generate_dialogue_script_with_claude(
 - 可能であれば数字（例:「3つの理由」「5分で分かる」）を含めてクリックを誘発
 - 感情的なパワーワード（例:「衝撃」「緊急」「革命」）を最低1つ含める
 - 固有名詞と動画内容に整合性を持たせ、ミスリードを避ける
+
+# 冒頭15秒フック（必須要件）
+以下の3文構造で必ず開始してください（各5秒以内の合計15秒）:
+{hook_description}
+- 1文目: 問題提起（驚きの事実や疑問形、固有名詞か数字を含める）
+- 2文目: 最新データや具体的な数字で裏付け
+- 3文目: 視聴メリット（この動画で得られる価値）を明確に提示
+- ❌ NG: 「こんにちは、今日のテーマは...」
+- ✅ OK: 「ちょっと待って！{entity_hint}の新発表、実は{benefit}なんです」
 
 # キャラクター設定
 - 男性ホスト: 知識豊富で丁寧な説明が得意。落ち着いた語り口。30代後半のイメージ。
@@ -198,6 +209,7 @@ JSONのみを出力してください。"""
         script = json.loads(content)
         if named_entities:
             script["named_entities"] = named_entities
+        script = _ensure_structured_hook(script, topic_analysis)
         print(f"Generated script: {script['title']} ({len(script['dialogues'])} dialogues)")
         return script
 
@@ -209,6 +221,7 @@ JSONのみを出力してください。"""
         script = generate_story(topic=topic_text, duration_minutes=duration_minutes)
         if named_entities:
             script["named_entities"] = named_entities
+        script = _ensure_structured_hook(script, topic_analysis)
         return script
 
 
@@ -404,6 +417,61 @@ def _fallback_comments() -> List[str]:
         "この視点は新しいですね。勉強になります。",
         "次回も楽しみにしています！",
     ]
+
+
+def _build_hook_context(topic_analysis: Dict[str, Any], script: Dict[str, Any]) -> Dict[str, str]:
+    selected = topic_analysis.get("selected_topic", {})
+    topic_title = topic_analysis.get("title") or script.get("title") or "このテーマ"
+    return {
+        "topic": topic_title,
+        "percentage": "78",
+        "misconception": topic_analysis.get("angle", "本質を見誤っている"),
+        "problem": f"{selected.get('source', '現場')}で急増中",
+        "stat": f"{selected.get('source', '最新レポート')}で判明",
+        "entity": selected.get("source", "専門家"),
+        "data": selected.get("snippet", "予想外のデータ"),
+        "numbers": "わずか30日で15%の差",
+        "benefit": topic_analysis.get("angle", "今日から先回りできる視点"),
+        "solution": topic_analysis.get("angle", "3つのステップ"),
+        "action": "あなたの戦略を一歩進める",
+    }
+
+
+def _validate_hook_quality(script: Dict[str, Any]) -> bool:
+    dialogues = script.get("dialogues", [])
+    if len(dialogues) < 3:
+        return False
+    combined = "".join(d.get("text", "") for d in dialogues[:3])
+    if len(combined) < 30:
+        return False
+    has_question = any(ch in combined for ch in ("？", "?", "！", "!"))
+    has_number = bool(re.search(r"[0-9０-９％%億万]", combined))
+    entities = [
+        entity.get("label")
+        for entity in script.get("named_entities", [])
+        if entity.get("label")
+    ]
+    has_entity = any(label in combined for label in entities)
+    benefit_keywords = ["わかります", "理解できます", "学べます", "解説します", "方法", "できる", "お伝えします", "紹介します", "分かります"]
+    has_benefit = any(word in combined for word in benefit_keywords)
+    return (has_entity or has_number) and has_question and has_benefit
+
+
+def _ensure_structured_hook(script: Dict[str, Any], topic_analysis: Dict[str, Any]) -> Dict[str, Any]:
+    if _validate_hook_quality(script):
+        return script
+
+    context = _build_hook_context(topic_analysis, script)
+    sentences = ContentTemplates.generate_three_sentence_hook(context["topic"], context)
+    structured_dialogues = [
+        {"speaker": "男性", "text": sentences[0]},
+        {"speaker": "女性", "text": sentences[1]},
+        {"speaker": "男性", "text": sentences[2]},
+    ]
+
+    dialogues = script.get("dialogues", [])
+    script["dialogues"] = structured_dialogues + dialogues[3:]
+    return script
 
 
 if __name__ == "__main__":
