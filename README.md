@@ -52,6 +52,11 @@
    - タイムスタンプ付き詳細説明文
    - 戦略的タグ配置（15-20個）
 
+7. **🧪 プリフライト検証**
+   - 動画・サムネイル・タイムスタンプ・台本をアップロード前に自動チェック
+   - タイトル長や固有名詞位置、ファイルサイズを検証して異常なら処理を停止
+   - 手動レビュー前の最後のガードレールとして安全性を確保
+
 ### ✅ コア機能
 
 1. **🔍 トレンドトピック自動発見**
@@ -108,8 +113,9 @@
 6.  Metadata Gen    → SEO最適化メタデータ (Gemini + Templates) ⭐
 7.  Comments Gen    → エンゲージメントコメント (5 Personas) ⭐
 8.  Thumbnail Gen   → サムネイル生成
-9.  Tracking        → Google Sheets / JSON ログ記録
-10. YouTube Upload  → 自動YouTube投稿 (YouTube Data API v3) ⭐NEW
+9.  Pre-flight Check → 動画/サムネ/タイムスタンプの自動検証 ⭐NEW
+10. Tracking        → Google Sheets / JSON ログ記録
+11. YouTube Upload  → 自動YouTube投稿 (YouTube Data API v3) ⭐NEW
 ```
 
 ---
@@ -149,6 +155,7 @@ ai-video-bot/
   ├── notifications.py                # Slack通知
   ├── tracking.py                     # Google Sheets / JSON ログ
   ├── youtube_uploader.py             # ⭐NEW YouTube自動アップロード
+  ├── pre_upload_checks.py            # アップロード前チェック
   │
   ├── # 📚 ドキュメント
   ├── README.md                       # このファイル

@@ -40,6 +40,7 @@ from metadata_generator import (
     generate_engagement_comments
 )
 from youtube_uploader import upload_video_with_metadata
+from pre_upload_checks import run_pre_upload_checks
 
 BASE = Path(__file__).parent
 OUT = BASE / "outputs"
@@ -212,6 +213,22 @@ def generate_single_video(
             accent_color_index=video_number % 4
         )
         print(f"  Thumbnail saved: {thumbnail_path}")
+
+        print("\n[8.5/10] ✅ Running pre-upload checks...")
+        validation = run_pre_upload_checks(
+            video_path=video_path,
+            thumbnail_path=thumbnail_path,
+            metadata=metadata,
+            timestamps=metadata.get("timestamps", []),
+            script=script,
+            timing_data=timing_data,
+            expected_duration_seconds=video_duration
+        )
+        for check in validation["checks"]:
+            status = "PASS" if check.passed else "FAIL"
+            print(f"   [{status}] {check.detail}")
+        if not validation["passed"]:
+            raise RuntimeError("Pre-upload validation failed. Resolve the failed checks before uploading.")
 
         # Step 9: Log to tracking system
         print("\n[9/10] 📊 Logging to tracking system...")
