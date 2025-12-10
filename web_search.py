@@ -127,7 +127,7 @@ def search_trending_topics(
         return _annotate_topics_with_entities(_fallback_topics(topic_category))
 
     try:
-        url = "https://google.serper.dev/search"
+        url = "https://google.serper.dev/news"
 
         # Build search query
         queries = {
@@ -154,10 +154,12 @@ def search_trending_topics(
 
         response = requests.post(url, json=payload, headers=headers, timeout=30)
         data = response.json()
+        news_items = data.get("news", [])
+        if not news_items and "organic" in data:
+            news_items = data.get("organic", [])
 
-        # Parse results
         results = []
-        for item in data.get("news", [])[:max_results]:
+        for item in news_items[:max_results]:
             results.append({
                 "title": item.get("title", ""),
                 "snippet": item.get("snippet", ""),
