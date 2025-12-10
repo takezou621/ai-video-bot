@@ -22,6 +22,9 @@ CHARACTER_HEIGHT = 400  # Large size for visibility
 CHARACTER_SPACING = 20  # Space between characters
 CHARACTER_MARGIN_RIGHT = 40  # Right margin
 CHARACTER_MARGIN_BOTTOM = 20  # Bottom margin
+CHARACTER_SHADOW_OFFSET = (18, 18)
+CHARACTER_SHADOW_BLUR = 18
+CHARACTER_SHADOW_COLOR = (0, 0, 0, 160)
 
 # Text styling
 TITLE_FONT_SIZE = 80
@@ -104,9 +107,53 @@ def add_text_with_shadow(
     draw.text(position, text, font=font, fill=text_color)
 
 
+def _load_character_images(target_height: int = CHARACTER_HEIGHT) -> Optional[Tuple[Image.Image, Image.Image]]:
+    """Load and resize character images if available"""
+    if not MALE_CHARACTER_PATH.exists() or not FEMALE_CHARACTER_PATH.exists():
+        return None
+
+    try:
+        male_char = Image.open(MALE_CHARACTER_PATH).convert('RGBA')
+        female_char = Image.open(FEMALE_CHARACTER_PATH).convert('RGBA')
+    except Exception as e:
+        print(f"Warning: Failed to load character images: {e}")
+        return None
+
+    def resize_character(char_img: Image.Image) -> Image.Image:
+        aspect_ratio = char_img.width / char_img.height
+        new_width = int(target_height * aspect_ratio)
+        return char_img.resize((new_width, target_height), Image.Resampling.LANCZOS)
+
+    return resize_character(male_char), resize_character(female_char)
+
+
+def _paste_with_shadow(
+    base: Image.Image,
+    char_img: Image.Image,
+    position: Tuple[int, int],
+    shadow_offset: Tuple[int, int] = CHARACTER_SHADOW_OFFSET,
+    blur_radius: int = CHARACTER_SHADOW_BLUR
+) -> Image.Image:
+    """Paste character with a soft drop shadow to blend with background"""
+    mask = char_img.split()[-1]
+    shadow_layer = Image.new('RGBA', base.size, (0, 0, 0, 0))
+
+    shadow_img = Image.new('RGBA', char_img.size, CHARACTER_SHADOW_COLOR)
+    shadow_layer.paste(
+        shadow_img,
+        (position[0] + shadow_offset[0], position[1] + shadow_offset[1]),
+        mask
+    )
+    shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(blur_radius))
+    base = Image.alpha_composite(base, shadow_layer)
+    base.paste(char_img, position, mask)
+    return base
+
+
 def add_characters_to_thumbnail(
     thumbnail: Image.Image,
-    add_characters: bool = True
+    add_characters: bool = True,
+    characters: Optional[Tuple[Image.Image, Image.Image]] = None
 ) -> Image.Image:
     """
     Add Ghibli-style dialogue characters to the bottom-right corner
@@ -121,27 +168,13 @@ def add_characters_to_thumbnail(
     if not add_characters:
         return thumbnail
 
-    # Check if character files exist
-    if not MALE_CHARACTER_PATH.exists() or not FEMALE_CHARACTER_PATH.exists():
+    if characters is None:
+        characters = _load_character_images()
+    if not characters:
         print("Warning: Character images not found, skipping character overlay")
         return thumbnail
 
-    # Load character images
-    try:
-        male_char = Image.open(MALE_CHARACTER_PATH).convert('RGBA')
-        female_char = Image.open(FEMALE_CHARACTER_PATH).convert('RGBA')
-    except Exception as e:
-        print(f"Warning: Failed to load character images: {e}")
-        return thumbnail
-
-    # Resize characters proportionally
-    def resize_character(char_img: Image.Image, target_height: int) -> Image.Image:
-        aspect_ratio = char_img.width / char_img.height
-        new_width = int(target_height * aspect_ratio)
-        return char_img.resize((new_width, target_height), Image.Resampling.LANCZOS)
-
-    male_char = resize_character(male_char, CHARACTER_HEIGHT)
-    female_char = resize_character(female_char, CHARACTER_HEIGHT)
+    male_char, female_char = characters
 
     # Calculate positions (bottom-right corner)
     # Place female on the right, male on the left
@@ -153,8 +186,8 @@ def add_characters_to_thumbnail(
     thumbnail_rgba = thumbnail.convert('RGBA')
 
     # Composite characters
-    thumbnail_rgba.paste(male_char, (male_x, char_y), male_char)
-    thumbnail_rgba.paste(female_char, (female_x, char_y), female_char)
+    thumbnail_rgba = _paste_with_shadow(thumbnail_rgba, male_char, (male_x, char_y))
+    thumbnail_rgba = _paste_with_shadow(thumbnail_rgba, female_char, (female_x, char_y))
 
     # Convert back to RGB
     return thumbnail_rgba.convert('RGB')
@@ -186,6 +219,9 @@ def create_thumbnail(
         output_path = background_image_path.parent / "thumbnail.jpg"
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Preload characters if needed (also used for text layout)
+    characters = _load_character_images() if add_characters else None
 
     # Load and prepare background
     bg = Image.open(background_image_path).convert('RGB')
@@ -226,7 +262,18 @@ def create_thumbnail(
     subtitle_font = get_japanese_font(SUBTITLE_FONT_SIZE)
 
     # Calculate text positioning
-    max_text_width = THUMBNAIL_WIDTH - 100  # Margins
+    text_margin = 60
+    character_block_width = 0
+    if characters:
+        character_block_width = (
+            characters[0].width + characters[1].width +
+            CHARACTER_SPACING + CHARACTER_MARGIN_RIGHT + 60
+        )
+
+    if character_block_width:
+        max_text_width = THUMBNAIL_WIDTH - character_block_width - text_margin
+    else:
+        max_text_width = THUMBNAIL_WIDTH - (text_margin * 2)
 
     # Wrap main text
     title_lines = wrap_text(thumbnail_text, title_font, max_text_width)
@@ -243,7 +290,10 @@ def create_thumbnail(
     for line in title_lines:
         bbox = title_font.getbbox(line)
         text_width = bbox[2] - bbox[0]
-        x = (THUMBNAIL_WIDTH - text_width) // 2
+        if character_block_width:
+            x = text_margin
+        else:
+            x = (THUMBNAIL_WIDTH - text_width) // 2
 
         add_text_with_shadow(
             draw, (x, current_y), line, title_font, TEXT_COLOR, shadow_offset=6
@@ -258,7 +308,10 @@ def create_thumbnail(
         for line in subtitle_lines:
             bbox = subtitle_font.getbbox(line)
             text_width = bbox[2] - bbox[0]
-            x = (THUMBNAIL_WIDTH - text_width) // 2
+            if character_block_width:
+                x = text_margin
+            else:
+                x = (THUMBNAIL_WIDTH - text_width) // 2
 
             add_text_with_shadow(
                 draw, (x, current_y), line, subtitle_font, accent_color, shadow_offset=4
@@ -278,7 +331,7 @@ def create_thumbnail(
 
     # Add dialogue characters to bottom-right
     if add_characters:
-        bg = add_characters_to_thumbnail(bg, add_characters=True)
+        bg = add_characters_to_thumbnail(bg, add_characters=True, characters=characters)
 
     # Save thumbnail
     bg.save(output_path, 'JPEG', quality=95, optimize=True)
