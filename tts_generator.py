@@ -7,7 +7,7 @@ import json
 import base64
 import requests
 from pathlib import Path
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
@@ -44,137 +44,83 @@ def generate_dialogue_audio(dialogues: List[Dict], output_path: Path) -> Tuple[P
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY is required")
 
-    # Combine dialogues into a script format for Gemini
-    script_parts = []
-    for d in dialogues:
-        # Support both new format (男性/女性) and legacy format (A/B)
-        speaker_label = d["speaker"]
-        if speaker_label in ["A", "男性"]:
-            speaker = "Speaker 1"
-        elif speaker_label in ["B", "女性"]:
-            speaker = "Speaker 2"
-        else:
-            speaker = "Speaker 1"  # Default
-        script_parts.append(f"{speaker}: {d['text']}")
-
-    full_script = "\n".join(script_parts)
-
-    # Use Gemini's TTS capability
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key={GEMINI_API_KEY}"
-
-    payload = {
-        "contents": [{
-            "parts": [{"text": full_script}]
-        }],
-        "generationConfig": {
-            "responseModalities": ["AUDIO"],
-            "speechConfig": {
-                "voiceConfig": {
-                    "prebuiltVoiceConfig": {
-                        "voiceName": "Zephyr"
-                    }
-                }
-            }
-        }
-    }
+    chunk_paths = []
+    estimated_timing = []
+    current_time = 0.0
 
     try:
-        r = requests.post(url, json=payload, timeout=300)
-        data = r.json()
+        for idx, dialogue in enumerate(dialogues):
+            text = dialogue.get("text", "")
+            if not text.strip():
+                continue
+            voice = _determine_voice(dialogue.get("speaker"))
+            audio_bytes, mime_type = _request_gemini_tts(text, voice)
+            chunk_path = output_path.parent / f"chunk_{idx}.wav"
+            _write_audio_chunk(audio_bytes, mime_type, chunk_path)
+            duration = _get_audio_duration(chunk_path)
+            estimated_timing.append({
+                "speaker": dialogue.get("speaker"),
+                "text": text,
+                "start": current_time,
+                "end": current_time + duration
+            })
+            current_time += duration
+            chunk_paths.append(chunk_path)
 
-        if "error" in data:
-            print(f"Gemini TTS Error: {data['error']}")
+        if not chunk_paths:
+            print("No audio chunks generated, using fallback")
             return _fallback_tts(dialogues, output_path)
 
-        # Extract audio from response
-        for part in data.get("candidates", [{}])[0].get("content", {}).get("parts", []):
-            if "inlineData" in part:
-                audio_data = base64.b64decode(part["inlineData"]["data"])
-                mime_type = part["inlineData"].get("mimeType", "audio/L16")
-                print(f"  Gemini TTS returned: {mime_type} ({len(audio_data)} bytes)")
+        final_path = output_path.with_suffix(".mp3")
+        concat_file = output_path.parent / "tts_concat.txt"
+        with open(concat_file, "w", encoding="utf-8") as f:
+            for chunk in chunk_paths:
+                f.write(f"file '{chunk}'\n")
 
-                # Save raw audio first
-                raw_path = output_path.parent / "raw_audio.pcm"
-                with open(raw_path, "wb") as f:
-                    f.write(audio_data)
+        import subprocess
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", str(concat_file),
+            "-c:a", "libmp3lame",
+            "-b:a", "192k",
+            str(final_path)
+        ], check=True, capture_output=True)
 
-                # Convert to MP3 based on mime type
-                final_path = output_path.with_suffix(".mp3")
-                import subprocess
+        # Cleanup chunks
+        concat_file.unlink(missing_ok=True)
+        for chunk in chunk_paths:
+            chunk.unlink(missing_ok=True)
 
-                if "L16" in mime_type or "pcm" in mime_type.lower():
-                    # Raw PCM audio - Gemini typically returns 24kHz, 16-bit, mono
-                    subprocess.run([
-                        "ffmpeg", "-y",
-                        "-f", "s16le",          # Signed 16-bit little endian
-                        "-ar", "24000",         # 24kHz sample rate
-                        "-ac", "1",             # Mono
-                        "-i", str(raw_path),
-                        "-c:a", "libmp3lame",
-                        "-b:a", "192k",
-                        str(final_path)
-                    ], check=True, capture_output=True)
-                elif "wav" in mime_type.lower():
-                    # WAV format - convert to MP3
-                    wav_path = output_path.with_suffix(".wav")
-                    with open(wav_path, "wb") as f:
-                        f.write(audio_data)
-                    subprocess.run([
-                        "ffmpeg", "-y",
-                        "-i", str(wav_path),
-                        "-c:a", "libmp3lame",
-                        "-b:a", "192k",
-                        str(final_path)
-                    ], check=True, capture_output=True)
-                    wav_path.unlink()
-                else:
-                    # Assume MP3 or other format
-                    with open(final_path, "wb") as f:
-                        f.write(audio_data)
+        timing_data = None
 
-                raw_path.unlink()
+        if USE_WHISPER_STT and not timing_data:
+            try:
+                from whisper_stt import generate_accurate_subtitles_with_whisper
+                timing_data = generate_accurate_subtitles_with_whisper(
+                    dialogues,
+                    final_path,
+                    model_size=WHISPER_MODEL_SIZE
+                )
+                if timing_data:
+                    print("✅ Using Whisper STT for accurate timing (100% FREE)")
+                    return final_path, timing_data
+            except Exception as e:
+                print(f"  Whisper STT failed: {e}, trying fallback...")
 
-                # Get accurate timing - priority order:
-                # 1. Whisper (local, free, accurate)
-                # 2. ElevenLabs STT (paid API, accurate)
-                # 3. Estimation (free, less accurate)
+        if USE_ELEVENLABS_STT and not timing_data:
+            try:
+                from elevenlabs_stt import generate_accurate_subtitles
+                timing_data = generate_accurate_subtitles(dialogues, final_path)
+                if timing_data:
+                    print("  Using ElevenLabs STT for accurate timing (paid API)")
+                    return final_path, timing_data
+            except Exception as e:
+                print(f"  ElevenLabs STT failed: {e}, using estimation")
 
-                timing_data = None
-
-                # Try Whisper first (100% FREE, local processing)
-                if USE_WHISPER_STT and not timing_data:
-                    try:
-                        from whisper_stt import generate_accurate_subtitles_with_whisper
-                        timing_data = generate_accurate_subtitles_with_whisper(
-                            dialogues,
-                            final_path,
-                            model_size=WHISPER_MODEL_SIZE
-                        )
-                        if timing_data:
-                            print("✅ Using Whisper STT for accurate timing (100% FREE)")
-                            return final_path, timing_data
-                    except Exception as e:
-                        print(f"  Whisper STT failed: {e}, trying fallback...")
-
-                # Try ElevenLabs if Whisper failed
-                if USE_ELEVENLABS_STT and not timing_data:
-                    try:
-                        from elevenlabs_stt import generate_accurate_subtitles
-                        timing_data = generate_accurate_subtitles(dialogues, final_path)
-                        if timing_data:
-                            print("  Using ElevenLabs STT for accurate timing (paid API)")
-                            return final_path, timing_data
-                    except Exception as e:
-                        print(f"  ElevenLabs STT failed: {e}, using estimation")
-
-                # Fallback to timing estimation
-                actual_duration = _get_audio_duration(final_path)
-                timing_data = _estimate_timing_scaled(dialogues, actual_duration)
-                print("  Using timing estimation (fallback)")
-                return final_path, timing_data
-
-        print("No audio in Gemini response, using fallback")
-        return _fallback_tts(dialogues, output_path)
+        print("  Using estimated timing (pre-TTS durations)")
+        return final_path, estimated_timing
 
     except Exception as e:
         print(f"Gemini TTS failed: {e}, using fallback")
@@ -232,6 +178,69 @@ def _fallback_tts(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[
         temp_files[0].rename(final_path)
 
     return final_path, timing_data
+
+
+def _determine_voice(speaker: Optional[str]) -> str:
+    if speaker in ["女性", "B"]:
+        return FEMALE_VOICE_NAME
+    return MALE_VOICE_NAME
+
+
+def _request_gemini_tts(text: str, voice_name: str) -> Tuple[bytes, str]:
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"gemini-2.5-flash-preview-tts:generateContent?key={GEMINI_API_KEY}"
+    )
+    payload = {
+        "contents": [{"parts": [{"text": text}]}],
+        "generationConfig": {
+            "responseModalities": ["AUDIO"],
+            "speechConfig": {
+                "voiceConfig": {
+                    "prebuiltVoiceConfig": {
+                        "voiceName": voice_name
+                    }
+                }
+            }
+        }
+    }
+    r = requests.post(url, json=payload, timeout=120)
+    data = r.json()
+    if "error" in data:
+        raise RuntimeError(data["error"])
+    for part in data.get("candidates", [{}])[0].get("content", {}).get("parts", []):
+        if "inlineData" in part:
+            audio = base64.b64decode(part["inlineData"]["data"])
+            mime = part["inlineData"].get("mimeType", "audio/L16")
+            return audio, mime
+    raise RuntimeError("Gemini TTS response missing inlineData")
+
+
+def _write_audio_chunk(audio_bytes: bytes, mime_type: str, output_path: Path):
+    raw_path = output_path.with_suffix(".raw")
+    with open(raw_path, "wb") as f:
+        f.write(audio_bytes)
+
+    import subprocess
+    if "L16" in mime_type or "pcm" in mime_type.lower():
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-f", "s16le",
+            "-ar", "24000",
+            "-ac", "1",
+            "-i", str(raw_path),
+            str(output_path)
+        ], check=True, capture_output=True)
+    elif "wav" in mime_type.lower():
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-i", str(raw_path),
+            str(output_path)
+        ], check=True, capture_output=True)
+    else:
+        output_path.write_bytes(audio_bytes)
+
+    raw_path.unlink(missing_ok=True)
 
 
 def _get_audio_duration(audio_path: Path) -> float:
@@ -322,3 +331,5 @@ def _estimate_timing(dialogues: List[Dict]) -> List[Dict]:
         current_time += duration + 0.3  # Small pause between speakers
 
     return timing_data
+MALE_VOICE_NAME = os.getenv("GEMINI_TTS_MALE_VOICE", "Zephyr")
+FEMALE_VOICE_NAME = os.getenv("GEMINI_TTS_FEMALE_VOICE", "Breeze")
