@@ -28,11 +28,18 @@ def generate_dialogue_script_with_claude(
     Returns:
         Dialogue script with metadata
     """
+    named_entities = topic_analysis.get("named_entities", [])
+    named_entity_labels = [entity.get("label") for entity in named_entities if entity.get("label")]
+    entity_hint = "、".join(named_entity_labels[:3]) if named_entity_labels else "注目企業名（NVIDIA, OpenAI など）"
+
     if not CLAUDE_API_KEY:
         print("Claude API key not found, using Gemini fallback")
         from llm_story import generate_story
         topic_text = topic_analysis.get("title", "")
-        return generate_story(topic=topic_text, duration_minutes=duration_minutes)
+        script = generate_story(topic=topic_text, duration_minutes=duration_minutes)
+        if named_entities:
+            script["named_entities"] = named_entities
+        return script
 
     try:
         # Estimate content length (Japanese: ~300 chars/minute for natural speech)
@@ -91,6 +98,12 @@ def generate_dialogue_script_with_claude(
 - 構成: フック（最初の15秒で視聴者を引き込む）→ イントロ → メイン解説 → まとめ → CTA（チャンネル登録促進）
 - 視聴者: ビジネスパーソン、経済に興味がある一般層
 - スタイル: 教育的だが堅苦しくない、親しみやすい、エンタメ性も意識
+
+# タイトル・SEO要件（Issue #1 対応）
+- 固有名詞を最初の3単語以内に配置（推奨固有名詞: {entity_hint}）
+- 可能であれば数字（例:「3つの理由」「5分で分かる」）を含めてクリックを誘発
+- 感情的なパワーワード（例:「衝撃」「緊急」「革命」）を最低1つ含める
+- 固有名詞と動画内容に整合性を持たせ、ミスリードを避ける
 
 # キャラクター設定
 - 男性ホスト: 知識豊富で丁寧な説明が得意。落ち着いた語り口。30代後半のイメージ。
@@ -170,6 +183,8 @@ JSONのみを出力してください。"""
             content = content[start:end]
 
         script = json.loads(content)
+        if named_entities:
+            script["named_entities"] = named_entities
         print(f"Generated script: {script['title']} ({len(script['dialogues'])} dialogues)")
         return script
 
@@ -178,7 +193,10 @@ JSONのみを出力してください。"""
         # Fallback to Gemini
         from llm_story import generate_story
         topic_text = topic_analysis.get("title", "")
-        return generate_story(topic=topic_text, duration_minutes=duration_minutes)
+        script = generate_story(topic=topic_text, duration_minutes=duration_minutes)
+        if named_entities:
+            script["named_entities"] = named_entities
+        return script
 
 
 def generate_metadata_with_claude(
@@ -201,6 +219,8 @@ def generate_metadata_with_claude(
 
     try:
         title = script.get("title", "")
+        named_entities = script.get("named_entities", [])
+        entity_hint = ", ".join(e.get("label") for e in named_entities if e.get("label")) or "NVIDIA / OpenAI などの固有名詞"
         dialogues_preview = "\n".join([
             f"{d['speaker']}: {d['text'][:100]}..."
             for d in script.get("dialogues", [])[:5]
@@ -217,6 +237,7 @@ def generate_metadata_with_claude(
 # メタデータ生成のポイント
 1. **タイトル**: クリックしたくなる要素（数字、疑問形、意外性）を含める
    - 例: 「【衝撃】〇〇の真実」「なぜ〇〇は失敗したのか？」「〇〇が教える3つの秘訣」
+   - 固有名詞（推奨: {entity_hint}）をタイトル冒頭に配置すること
 2. **説明文**: 最初の3行で視聴者を引き込む（この3行がスマホで表示される）
    - 動画の価値を明確に
    - タイムスタンプを含める

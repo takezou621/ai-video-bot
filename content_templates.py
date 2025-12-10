@@ -135,6 +135,12 @@ class ContentTemplates:
             "知らないと損！{topic}の{surprising_fact}",
             "まさか...{topic}が{unexpected_result}だった件"
         ],
+        "named_entity_focus": [
+            "{entity}が{action}！{impact}",
+            "{entity}最新{topic}で業界激変",
+            "【速報】{entity}が{announcement}",
+            "{entity} vs {rival}｜{hook}",
+        ],
         "question": [
             "なぜ{topic}は{outcome}なのか？｜{expert}が解説",
             "{topic}で成功する人・失敗する人の違いとは？",

@@ -2,8 +2,8 @@
 Automated Metadata Generator
 Generates complete YouTube metadata using templates
 """
-import os
-from typing import Dict, Any, List
+import re
+from typing import Dict, Any, List, Optional
 from content_templates import ContentTemplates
 
 
@@ -28,6 +28,8 @@ def generate_complete_metadata(
     title = script.get("title", "")
     description = script.get("description", "")
     key_points = []
+    named_entities = script.get("named_entities", [])
+    primary_entity = _get_primary_entity(named_entities)
 
     # Extract key points from dialogues
     dialogues = script.get("dialogues", [])
@@ -57,14 +59,18 @@ def generate_complete_metadata(
     )
 
     # Combine Claude metadata with template metadata
+    youtube_title = claude_metadata.get("youtube_title", title) if claude_metadata else title
+    youtube_title = _enforce_named_entity_prefix(youtube_title, primary_entity)
+
     metadata = {
-        "youtube_title": claude_metadata.get("youtube_title", title) if claude_metadata else title,
+        "youtube_title": youtube_title,
         "youtube_description": full_description,
         "tags": claude_metadata.get("tags", script.get("tags", [])) if claude_metadata else script.get("tags", []),
         "category": claude_metadata.get("category", "Education") if claude_metadata else "Education",
         "hashtags": claude_metadata.get("hashtags", []) if claude_metadata else ["#経済", "#ビジネス"],
         "timestamps": timestamps,
-        "duration_formatted": _format_duration(video_duration_seconds)
+        "duration_formatted": _format_duration(video_duration_seconds),
+        "named_entities": named_entities,
     }
 
     return metadata
@@ -72,8 +78,9 @@ def generate_complete_metadata(
 
 def generate_title_variations(
     topic: str,
-    key_points: List[str] = None
-) -> List[str]:
+    key_points: List[str] = None,
+    named_entities: Optional[List[Dict[str, Any]]] = None
+) -> List[Dict[str, str]]:
     """
     Generate multiple title variations
 
@@ -85,6 +92,26 @@ def generate_title_variations(
         List of title variations
     """
     variations = []
+    primary_entity = _get_primary_entity(named_entities or [])
+    top_key_point = (key_points[0] if key_points else "最新トレンド").replace("\n", "")
+
+    if primary_entity:
+        try:
+            variations.append({
+                "type": "named_entity_focus",
+                "title": ContentTemplates.generate_title(
+                    topic=topic,
+                    template_type="named_entity_focus",
+                    entity=primary_entity,
+                    action="最新発表",
+                    impact=f"{top_key_point[:18]}",
+                    announcement=f"{top_key_point[:20]}",
+                    rival="競合各社",
+                    hook="何が変わる？"
+                )
+            })
+        except Exception as e:
+            print(f"Failed to generate named_entity_focus title: {e}")
 
     # Generate different types
     title_types = ["shock", "question", "number", "how_to"]
@@ -208,6 +235,32 @@ def _format_duration(seconds: float) -> str:
     minutes = int(seconds // 60)
     secs = int(seconds % 60)
     return f"{minutes}分{secs}秒"
+
+
+def _get_primary_entity(named_entities: List[Dict[str, Any]]) -> Optional[str]:
+    for entity in named_entities:
+        label = entity.get("label")
+        if label:
+            return label
+    return None
+
+
+def _enforce_named_entity_prefix(title: str, entity: Optional[str]) -> str:
+    if not entity:
+        return title or ""
+
+    if not title:
+        return f"{entity} 最新トピック"
+
+    stripped = title.strip()
+    if stripped.lower().startswith(entity.lower()):
+        return stripped
+
+    pattern = re.compile(re.escape(entity), re.IGNORECASE)
+    stripped_without_entity = pattern.sub("", stripped, count=1).strip(" -|：:、")
+    if stripped_without_entity:
+        return f"{entity} {stripped_without_entity}"
+    return entity
 
 
 if __name__ == "__main__":

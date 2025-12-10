@@ -4,12 +4,77 @@ Based on the Zenn blog's news discovery approach
 """
 import os
 import json
+import re
 import requests
 from typing import List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")  # Google Search API alternative
+
+# High-priority entities that frequently boost CTR when highlighted in titles
+NAMED_ENTITY_LIBRARY = [
+    {
+        "entity": "NVIDIA",
+        "aliases": ["NVIDIA", "エヌビディア"],
+        "type": "company",
+        "priority": 3.0,
+    },
+    {
+        "entity": "OpenAI",
+        "aliases": ["OpenAI", "オープンAI", "ChatGPT"],
+        "type": "company",
+        "priority": 3.0,
+    },
+    {
+        "entity": "Apple",
+        "aliases": ["Apple", "アップル", "Apple Vision Pro"],
+        "type": "company",
+        "priority": 2.5,
+    },
+    {
+        "entity": "Microsoft",
+        "aliases": ["Microsoft", "マイクロソフト", "Copilot"],
+        "type": "company",
+        "priority": 2.5,
+    },
+    {
+        "entity": "Google",
+        "aliases": ["Google", "グーグル", "Gemini", "DeepMind"],
+        "type": "company",
+        "priority": 2.3,
+    },
+    {
+        "entity": "Anthropic",
+        "aliases": ["Anthropic", "Claude"],
+        "type": "company",
+        "priority": 2.2,
+    },
+    {
+        "entity": "Meta",
+        "aliases": ["Meta", "メタ", "Facebook", "Llama"],
+        "type": "company",
+        "priority": 2.0,
+    },
+    {
+        "entity": "Amazon",
+        "aliases": ["Amazon", "アマゾン", "AWS"],
+        "type": "company",
+        "priority": 2.0,
+    },
+    {
+        "entity": "Samsung",
+        "aliases": ["Samsung", "サムスン"],
+        "type": "company",
+        "priority": 1.8,
+    },
+    {
+        "entity": "Tesla",
+        "aliases": ["Tesla", "テスラ", "Elon Musk", "イーロン・マスク", "Grok"],
+        "type": "company",
+        "priority": 2.6,
+    },
+]
 
 
 def search_trending_topics(
@@ -29,7 +94,7 @@ def search_trending_topics(
         List of trending topics with titles, snippets, and URLs
     """
     if not SERPER_API_KEY:
-        return _fallback_topics(topic_category)
+        return _annotate_topics_with_entities(_fallback_topics(topic_category))
 
     try:
         url = "https://google.serper.dev/search"
@@ -71,12 +136,13 @@ def search_trending_topics(
                 "date": item.get("date", ""),
             })
 
+        results = _annotate_topics_with_entities(results)
         print(f"Found {len(results)} trending topics in {topic_category}")
         return results
 
     except Exception as e:
         print(f"Search failed: {e}, using fallback topics")
-        return _fallback_topics(topic_category)
+        return _annotate_topics_with_entities(_fallback_topics(topic_category))
 
 
 def select_topic_with_claude(
@@ -97,17 +163,19 @@ def select_topic_with_claude(
     if not CLAUDE_API_KEY:
         # Return first topic if no Claude API
         if search_results:
+            top = search_results[0]
             return {
-                "selected_topic": search_results[0],
+                "selected_topic": top,
                 "angle": "最新のトレンドについて解説",
                 "key_points": ["概要", "背景", "影響"],
+                "named_entities": top.get("named_entities", [])
             }
         return _fallback_selected_topic()
 
     try:
         # Format search results for Claude
         topics_text = "\n\n".join([
-            f"Topic {i+1}:\nTitle: {t['title']}\nSnippet: {t['snippet']}\nSource: {t['source']}"
+            _format_topic_for_prompt(i, t)
             for i, t in enumerate(search_results[:10])
         ])
 
@@ -165,9 +233,16 @@ JSONのみを出力してください。"""
         # Add the selected topic data
         selected_idx = analysis.get("selected_index", 1) - 1
         if 0 <= selected_idx < len(search_results):
-            analysis["selected_topic"] = search_results[selected_idx]
+            selected_topic = search_results[selected_idx]
         else:
-            analysis["selected_topic"] = search_results[0] if search_results else {}
+            selected_topic = search_results[0] if search_results else {}
+
+        analysis["selected_topic"] = selected_topic
+
+        # Carry named-entity information downstream for metadata/title modules
+        entity_info = selected_topic.get("named_entities") if selected_topic else None
+        if entity_info:
+            analysis["named_entities"] = entity_info
 
         print(f"Selected topic: {analysis.get('title', 'Unknown')}")
         return analysis
@@ -175,11 +250,13 @@ JSONのみを出力してください。"""
     except Exception as e:
         print(f"Topic selection failed: {e}")
         if search_results:
+            fallback = search_results[0]
             return {
-                "selected_topic": search_results[0],
-                "title": search_results[0]["title"],
+                "selected_topic": fallback,
+                "title": fallback["title"],
                 "angle": "最新のトレンドについて解説",
                 "key_points": ["概要", "背景", "影響"],
+                "named_entities": fallback.get("named_entities", [])
             }
         return _fallback_selected_topic()
 
@@ -217,6 +294,68 @@ def _fallback_topics(category: str) -> List[Dict[str, Any]]:
     return topics_by_category.get(category, topics_by_category["economics"])
 
 
+def _annotate_topics_with_entities(topics: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    annotated = []
+    for topic in topics:
+        text_parts = [topic.get("title", ""), topic.get("snippet", "")]
+        entities = _extract_entities(" ".join(text_parts))
+        topic_copy = dict(topic)
+        topic_copy["named_entities"] = entities
+        topic_copy["entity_score"] = sum(e["priority"] for e in entities)
+        topic_copy["freshness_score"] = _calculate_freshness(topic.get("date"))
+        topic_copy["priority_score"] = topic_copy["entity_score"] + topic_copy["freshness_score"]
+        annotated.append(topic_copy)
+    annotated.sort(key=lambda item: item.get("priority_score", 0), reverse=True)
+    return annotated
+
+
+def _extract_entities(text: str) -> List[Dict[str, Any]]:
+    entities = []
+    normalized_text = text or ""
+    for entity_config in NAMED_ENTITY_LIBRARY:
+        for alias in entity_config["aliases"]:
+            if alias and re.search(re.escape(alias), normalized_text, re.IGNORECASE):
+                entities.append({
+                    "label": entity_config["entity"],
+                    "alias": alias,
+                    "type": entity_config["type"],
+                    "priority": entity_config["priority"],
+                })
+                break
+    return entities
+
+
+def _calculate_freshness(date_str: str) -> float:
+    if not date_str:
+        return 0.0
+    try:
+        parsed_date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            parsed_date = datetime.strptime(date_str, "%Y-%m-%d")
+        except Exception:
+            return 0.0
+    if not parsed_date.tzinfo:
+        parsed_date = parsed_date.replace(tzinfo=timezone.utc)
+    delta_hours = (datetime.now(timezone.utc) - parsed_date).total_seconds() / 3600
+    if delta_hours <= 0:
+        return 1.0
+    return max(0.0, 1.0 - min(delta_hours / 168.0, 1.0))  # decay over 7 days
+
+
+def _format_topic_for_prompt(index: int, topic: Dict[str, Any]) -> str:
+    entities = topic.get("named_entities", [])
+    entity_text = ", ".join(e["label"] for e in entities) if entities else "(no notable entities)"
+    return (
+        f"Topic {index + 1}:\n"
+        f"Title: {topic.get('title', '')}\n"
+        f"Snippet: {topic.get('snippet', '')}\n"
+        f"Source: {topic.get('source', '')}\n"
+        f"Entities: {entity_text}\n"
+        f"Priority Score: {topic.get('priority_score', 0):.2f}\n"
+    )
+
+
 def _fallback_selected_topic() -> Dict[str, Any]:
     """Fallback selected topic"""
     return {
@@ -233,7 +372,8 @@ def _fallback_selected_topic() -> Dict[str, Any]:
             "url": "",
             "source": "Fallback",
             "date": datetime.now().isoformat(),
-        }
+        },
+        "named_entities": []
     }
 
 
