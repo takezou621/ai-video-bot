@@ -497,18 +497,45 @@ class ContentTemplates:
             ("まとめ", ["まとめ", "ポイント", "重要"])
         ]
 
+        max_occurrences = {
+            "問題提起": 1,
+            "まとめ": 1,
+            "解決策": 2,
+            "詳しく解説": 3
+        }
+        label_counts = {label: 0 for label, _ in section_markers}
+        last_time = {label: -999 for label, _ in section_markers}
+        min_gap = 25  # seconds between repeated labels
+
         for i, dialogue in enumerate(dialogues):
             text = dialogue.get("text", "")
 
             for label, keywords in section_markers:
                 if any(kw in text for kw in keywords):
+                    if label_counts[label] >= max_occurrences.get(label, 3):
+                        continue
+                    if i < len(timing_data):
+                        start_time = timing_data[i]["start"]
+                    else:
+                        continue
+                    if start_time - last_time[label] < min_gap:
+                        continue
                     # Find timing for this dialogue
                     if i < len(timing_data):
                         timestamps.append({
-                            "time": timing_data[i]["start"],
+                            "time": start_time,
                             "label": label
                         })
+                        label_counts[label] += 1
+                        last_time[label] = start_time
                     break
+
+        # Ensure there's a summary near the end
+        if label_counts.get("まとめ", 0) == 0 and timing_data:
+            timestamps.append({
+                "time": timing_data[-1]["end"],
+                "label": "まとめ"
+            })
 
         return timestamps
 
