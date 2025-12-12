@@ -7,7 +7,10 @@ import random
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 from typing import Tuple, Optional, Dict, List
+from nano_banana_client import generate_image
 
+# Environment
+USE_NANO_BANANA_PRO = os.getenv("USE_NANO_BANANA_PRO", "false").lower() == "true"
 
 # Thumbnail dimensions (YouTube recommended: 1280x720)
 THUMBNAIL_WIDTH = 1280
@@ -754,7 +757,8 @@ def create_thumbnail(
     add_characters: bool = True,
     topic_badge_text: str = "",
     badge_icon_path: Optional[Path] = None,
-    layout_name: Optional[str] = None
+    layout_name: Optional[str] = None,
+    image_prompt: Optional[str] = None
 ) -> Path:
     """
     Create a YouTube thumbnail with text overlay and character images
@@ -769,6 +773,7 @@ def create_thumbnail(
         topic_badge_text: Optional badge text for category
         badge_icon_path: Optional icon displayed near badge
         layout_name: Optional layout preset name (e.g., "three_bar_layout")
+        image_prompt: Original prompt used for background generation (for AI text rendering)
 
     Returns:
         Path to generated thumbnail
@@ -778,6 +783,35 @@ def create_thumbnail(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # DIRECT AI GENERATION MODE
+    # If using Nano Banana Pro and a prompt is provided, let the AI generate the text directly.
+    # This skips all manual PIL composition (characters, text overlays, etc.)
+    if USE_NANO_BANANA_PRO and image_prompt:
+        print(f"🎨 Using Nano Banana Pro for full thumbnail generation (including text)...")
+        
+        # Sanitize text for prompt
+        clean_title = thumbnail_text.replace("\n", " ")
+        clean_subtitle = subtitle_text.replace("\n", " ")
+        
+        # Construct a prompt that instructs the model to render text
+        full_prompt = (
+            f"{image_prompt}. "
+            f"Important: The image must clearly feature the Japanese text '{clean_title}' written in large, bold, elegant typography in the center or top area. "
+            f"The style should be a high-quality YouTube thumbnail, eye-catching and vibrant. "
+            f"Ensure the text is legible and integrated naturally into the composition."
+        )
+        if clean_subtitle:
+            full_prompt += f" Also include smaller subtitle text: '{clean_subtitle}'."
+
+        # Generate the image directly to output path
+        result = generate_image(full_prompt, output_path)
+        if result and result.exists():
+            print(f"✅ AI-generated thumbnail created: {output_path}")
+            return output_path
+        else:
+            print("⚠️ AI generation failed, falling back to standard composition.")
+
+    # Standard Composition Logic (Fallback or if Nano Banana is disabled)
     sanitized_title = _craft_headline(thumbnail_text)
     sanitized_subtitle = _sanitize_text(subtitle_text, MAX_SUBTITLE_CHARS)
     emotion = _select_emotion(sanitized_title)

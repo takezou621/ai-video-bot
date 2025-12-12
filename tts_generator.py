@@ -187,8 +187,9 @@ def _fallback_tts(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[
 
 
 def _determine_voice(speaker: Optional[str]) -> str:
-    if speaker in ["女性", "B"]:
+    if speaker in ["女性", "B", "Female"]:
         return FEMALE_VOICE_NAME
+    # Default to male voice for "男性", "A", "Male", or unknown
     return MALE_VOICE_NAME
 
 
@@ -337,5 +338,5 @@ def _estimate_timing(dialogues: List[Dict]) -> List[Dict]:
         current_time += duration + 0.3  # Small pause between speakers
 
     return timing_data
-MALE_VOICE_NAME = os.getenv("GEMINI_TTS_MALE_VOICE", "Zephyr")
+MALE_VOICE_NAME = os.getenv("GEMINI_TTS_MALE_VOICE", "Fenrir")
 FEMALE_VOICE_NAME = os.getenv("GEMINI_TTS_FEMALE_VOICE", "Aoede")
