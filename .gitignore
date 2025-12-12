@@ -36,3 +36,7 @@ Thumbs.db
 *.tmp
 *.temp
 raw_audio.pcm
+
+# Test outputs
+test_output/
+nanobanana-output/

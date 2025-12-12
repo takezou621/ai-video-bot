@@ -1,5 +1,14 @@
 # 🧪 動作確認テストレポート
 
+## 最新回帰テスト
+
+| 日付 | テスト内容 | コマンド | 結果 |
+|------|------------|----------|------|
+| 2025-12-10 | プリフライトチェック（`pre_upload_checks.py`） | `./venv/bin/python - <<'PY' ...` | 7項目すべてPASS（video/thumbnail/title/timestamps/script/duration整合） |
+| 2025-12-10 | サムネイル生成回帰（男女キャラ配置） | `./venv/bin/python test_thumbnail_with_characters.py` | `outputs/2025-12-02/video_001/test_thumbnail_with_characters.jpg` 生成を確認 |
+| 2025-12-10 | レイアウト拡張（Before/After & Badge Stack） | `./venv/bin/python - <<'PY' ... create_thumbnail(...)` | `sample_thumbnail_vs.jpg` / `sample_thumbnail_tips.jpg` を生成し、キーワードに応じたテンプレ切替を確認 |
+| 2025-12-10 | サムネイルLint | `./venv/bin/python thumb_lint.py outputs/.../sample_thumbnail_test_run.jpg` | PASS（警告なし）。advanced_video_pipeline でも lint を強制 |
+
 ## テスト実施日時
 2025-11-26
 

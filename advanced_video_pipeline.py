@@ -40,7 +40,15 @@ from metadata_generator import (
     generate_engagement_comments
 )
 from youtube_uploader import upload_video_with_metadata
+
+BADGE_LABELS = {
+    "economics": "経済",
+    "technology": "テック",
+    "culture": "カルチャー",
+    "lifestyle": "ライフ",
+}
 from pre_upload_checks import run_pre_upload_checks
+from thumb_lint import lint_thumbnail
 
 BASE = Path(__file__).parent
 OUT = BASE / "outputs"
@@ -205,14 +213,24 @@ def generate_single_video(
         print("\n[8/10] 🖼️  Generating thumbnail...")
         thumbnail_text = script.get("thumbnail_text", topic_title[:10])
         thumbnail_path = outdir / "thumbnail.jpg"
+        badge_text = BADGE_LABELS.get(topic_category, topic_category or "解説")
         create_thumbnail(
             bg_path,
             thumbnail_text,
             subtitle_text="",
             output_path=thumbnail_path,
-            accent_color_index=video_number % 4
+            accent_color_index=video_number % 4,
+            topic_badge_text=badge_text
         )
         print(f"  Thumbnail saved: {thumbnail_path}")
+        lint_warnings = lint_thumbnail(thumbnail_path)
+        if lint_warnings:
+            print("⚠️  Thumbnail QA failed:")
+            for warn in lint_warnings:
+                print(f"    - {warn}")
+            raise RuntimeError("Thumbnail lint failed - regenerate or adjust layout.")
+        else:
+            print("  Thumbnail QA passed ✅")
 
         print("\n[8.5/10] ✅ Running pre-upload checks...")
         validation = run_pre_upload_checks(

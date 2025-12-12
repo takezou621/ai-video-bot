@@ -69,8 +69,9 @@
    - テンプレート構造に基づく自然な会話
 
 3. **🎙️ 自然な音声合成**
-   - Google Gemini TTS（Zephyr voice）でポッドキャスト風音声
-   - 複数話者の対話に完全対応
+   - Google Gemini 2.5 TTS（最新2025年12月モデル対応）⭐NEW
+   - Flash（高速・低コスト）/ Pro（高品質）から選択可能
+   - 複数話者の対話に完全対応（Zephyr/Breezeボイス）
 
 4. **🎬 プロ品質の動画生成**
    - FFmpeg + MoviePyのハイブリッドレンダリング
@@ -205,6 +206,11 @@ cp .env.sample .env
 GEMINI_API_KEY=your_gemini_key          # Gemini TTS/台本/メタデータ用
 OPENAI_API_KEY=your_openai_key          # DALL-E画像生成用
 
+# Gemini TTS設定（2025年12月最新モデル対応）⭐NEW
+GEMINI_TTS_MODEL=gemini-2.5-flash-preview-tts    # flash（高速・低コスト）or pro（高品質）
+GEMINI_TTS_MALE_VOICE=Zephyr             # 男性声優名
+GEMINI_TTS_FEMALE_VOICE=Breeze           # 女性声優名
+
 # オプション（品質向上）⭐NEW
 USE_WHISPER_STT=true                     # Whisper STT（100%無料、デフォルト: 有効）⭐推奨
 WHISPER_MODEL_SIZE=base                  # Whisperモデル: tiny, base, small, medium, large
@@ -288,6 +294,9 @@ docker compose run --rm ai-video-bot python advanced_video_pipeline.py
 - ✅ 自動タイムスタンプ生成
 - ✅ キャラクターペルソナコメント
 - ✅ YouTube自動アップロード（オプション）⭐NEW
+- ✅ プリフライトチェックでサムネ/タイトル/タイムスタンプを検証
+- ✅ Yukkuri風サムネイル（`THUMBNAIL_STYLE.md`）でCTRを最大化
+- ✅ Gemini TTSで男性×女性の掛け合い音声を自動合成
 
 ### B. Web検索で最新トピック
 
@@ -335,6 +344,30 @@ docker compose run --rm ai-video-bot python advanced_video_pipeline.py
 ### F. 個別モジュールのテスト
 
 ```bash
+# プリフライトチェック（動画/サムネ/メタデータ）
+./venv/bin/python - <<'PY'
+import json
+from pathlib import Path
+from pre_upload_checks import run_pre_upload_checks
+base = Path('outputs/2025-12-02/video_001')
+metadata_path = base / 'metadata.json'
+with open(metadata_path, encoding='utf-8') as f:
+    metadata = json.load(f)
+report = run_pre_upload_checks(
+    video_path=base/'video.mp4',
+    thumbnail_path=base/'thumbnail.jpg',
+    metadata=metadata,
+    timestamps=metadata.get('timestamps', []),
+    script=json.load(open(base/'script.json')),
+    timing_data=json.load(open(base/'timing.json')),
+    expected_duration_seconds=metadata.get('duration_seconds', 0)
+)
+print(report)
+PY
+
+# サムネイルQA（色数/コントラスト/サイズ） NEW
+./venv/bin/python thumb_lint.py outputs/2025-12-02/video_001/sample_thumbnail_test_run.jpg
+
 # YouTube認証テスト
 docker compose run --rm ai-video-bot python youtube_uploader.py
 
@@ -526,6 +559,11 @@ USE_MOVIEPY=false
 - **[QUICKSTART.md](QUICKSTART.md)** - 5分で始めるクイックガイド
 - **[CLAUDE.md](CLAUDE.md)** - （レガシー）Claude Code向けガイド ※Gemini移行後も開発フロー参考
 - **[QUALITY_IMPROVEMENTS.md](QUALITY_IMPROVEMENTS.md)** - 品質向上の詳細
+- **[THUMBNAIL_STYLE.md](THUMBNAIL_STYLE.md)** - ゆっくり解説風サムネイルのデザインガイド
+- **[docs/reference_thumbnails/README.md](docs/reference_thumbnails/README.md)** - リファレンスサムネの収集手順と命名規約
+- **[docs/reference_thumbnails/examples/README.md](docs/reference_thumbnails/examples/README.md)** - カテゴリ別サンプル置き場
+- **[docs/layout_guides/thumbnail_presets.md](docs/layout_guides/thumbnail_presets.md)** - プリセットごとのレイアウト仕様
+- **[docs/NANO_BANANA_PRO.md](docs/NANO_BANANA_PRO.md)** - ローカル画像生成(Nano Banana Pro)の設定方法
 - **[TEMPLATE_SYSTEM.md](TEMPLATE_SYSTEM.md)** - テンプレートシステムガイド
 - **[TEST_REPORT.md](TEST_REPORT.md)** - テスト結果レポート
 

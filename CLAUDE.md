@@ -58,6 +58,13 @@ docker compose build
 - `TOPIC_CATEGORY`: Topic category (economics, technology, culture, lifestyle)
 - `USE_WEB_SEARCH`: Enable/disable web search for trending topics (true/false)
 
+**Gemini TTS Settings (December 2025 - Latest Models):**
+- `GEMINI_TTS_MODEL`: Gemini TTS model selection (default: gemini-2.5-flash-preview-tts)
+  - `gemini-2.5-flash-preview-tts`: Faster, cost-efficient for everyday use
+  - `gemini-2.5-pro-preview-tts`: State-of-the-art quality for complex prompts
+- `GEMINI_TTS_MALE_VOICE`: Male voice name for dialogue (default: Zephyr)
+- `GEMINI_TTS_FEMALE_VOICE`: Female voice name for dialogue (default: Breeze)
+
 **Quality Settings:**
 - `USE_WHISPER_STT`: Enable Whisper STT for accurate subtitle timing (true/false, **100% FREE**, default: true, recommended)
 - `WHISPER_MODEL_SIZE`: Whisper model size (tiny/base/small/medium/large, default: base)
@@ -267,9 +274,13 @@ Claude models are configured in `claude_generator.py`:
 - Can be upgraded to `claude-3-opus` for higher quality at increased cost
 - Temperature: 0.9 for creative dialogue, default for analytical tasks
 
-Gemini TTS configuration in `tts_generator.py`:
-- Model: `gemini-2.5-flash-preview-tts`
-- Voice: `Zephyr` (podcast-style)
+Gemini TTS configuration in `tts_generator.py` (December 2025 - Latest Models):
+- Model: Configurable via `GEMINI_TTS_MODEL` environment variable
+  - Default: `gemini-2.5-flash-preview-tts` (faster, cost-efficient)
+  - Alternative: `gemini-2.5-pro-preview-tts` (state-of-the-art quality)
+- Voices: Configurable via environment variables
+  - Male: `GEMINI_TTS_MALE_VOICE` (default: Zephyr)
+  - Female: `GEMINI_TTS_FEMALE_VOICE` (default: Breeze)
 - Format: PCM L16 24kHz mono, converted to MP3
 
 ## Cost Considerations

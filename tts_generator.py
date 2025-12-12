@@ -12,6 +12,11 @@ from typing import List, Dict, Tuple, Optional
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 
+# Gemini TTS Model Selection (December 2025 - latest models)
+# flash: faster, cost-efficient for everyday use
+# pro: state-of-the-art quality for complex prompts
+GEMINI_TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
+
 # Whisper STT (local, free) - prioritized over ElevenLabs
 USE_WHISPER_STT = os.getenv("USE_WHISPER_STT", "true").lower() == "true"
 WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")  # tiny, base, small, medium, large
@@ -20,7 +25,8 @@ WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")  # tiny, base, smal
 USE_ELEVENLABS_STT_ENV = os.getenv("USE_ELEVENLABS_STT", "false").lower() == "true"
 USE_ELEVENLABS_STT = USE_ELEVENLABS_STT_ENV and bool(ELEVENLABS_API_KEY)
 
-# Log subtitle timing strategy
+# Log TTS and subtitle timing strategy
+print(f"[INFO] Using Gemini TTS model: {GEMINI_TTS_MODEL}")
 if USE_WHISPER_STT:
     print(f"[INFO] Using Whisper STT (local, FREE) for accurate subtitles - model: {WHISPER_MODEL_SIZE}")
 elif USE_ELEVENLABS_STT:
@@ -189,7 +195,7 @@ def _determine_voice(speaker: Optional[str]) -> str:
 def _request_gemini_tts(text: str, voice_name: str) -> Tuple[bytes, str]:
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-2.5-flash-preview-tts:generateContent?key={GEMINI_API_KEY}"
+        f"{GEMINI_TTS_MODEL}:generateContent?key={GEMINI_API_KEY}"
     )
     payload = {
         "contents": [{"parts": [{"text": text}]}],
@@ -332,4 +338,4 @@ def _estimate_timing(dialogues: List[Dict]) -> List[Dict]:
 
     return timing_data
 MALE_VOICE_NAME = os.getenv("GEMINI_TTS_MALE_VOICE", "Zephyr")
-FEMALE_VOICE_NAME = os.getenv("GEMINI_TTS_FEMALE_VOICE", "Breeze")
+FEMALE_VOICE_NAME = os.getenv("GEMINI_TTS_FEMALE_VOICE", "Aoede")

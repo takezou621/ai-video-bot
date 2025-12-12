@@ -120,6 +120,83 @@ USE_MOVIEPY=true
 - 関連キーワード
 - 15-20個のタグ
 
+### 6. 🛫 プリフライトチェックの自動化
+
+**課題**: サムネイル未生成やタイムスタンプの重複といった人力チェック漏れで、YouTubeアップロード後に差し戻しが必要だった。
+
+**解決策**: `pre_upload_checks.py` を `advanced_video_pipeline.py` のステップ8.5に組み込み、以下を自動判定。
+- 動画ファイルサイズ（2MB以上）
+- サムネイル有無・サイズ（50KB以上）
+- タイトル文字数と固有名詞先頭配置
+- タイムスタンプの昇順＆重複防止（最低3ラベル）
+- 台本の対話数（10往復以上）
+- 字幕タイミングと動画尺の差分（±10秒以内）
+
+**手動実行例**:
+```bash
+./venv/bin/python - <<'PY'
+import json
+from pathlib import Path
+from pre_upload_checks import run_pre_upload_checks
+base = Path('outputs/2025-12-02/video_001')
+metadata = json.load(open(base/'metadata.json'))
+report = run_pre_upload_checks(
+    video_path=base/'video.mp4',
+    thumbnail_path=base/'thumbnail.jpg',
+    metadata=metadata,
+    timestamps=metadata.get('timestamps', []),
+    script=json.load(open(base/'script.json')),
+    timing_data=json.load(open(base/'timing.json')),
+    expected_duration_seconds=metadata.get('duration_seconds', 0)
+)
+print(report)
+PY
+```
+
+### 7. 🎙️ 男性×女性 TTS の整合性
+
+**課題**: サムネイルには男性＋女性キャラを表示しているのに、音声が女性ボイス2人で統一されており没入感が損なわれていた。
+
+**解決策**:
+- `tts_generator.py` で `speaker` （「男性」「女性」）に応じ、Gemini TTSの `MALE_VOICE_NAME`（Zephyr）と `FEMALE_VOICE_NAME`（Breeze）を割り当て。
+- Whisper STT（デフォルトON）で台本→音声同期を取得し、字幕とサムネ配置を揃える。
+- フォールバックのgTTSでも話者ラベルを保持し、後段の字幕レンダラが色分けを維持。
+
+**.env例**:
+```env
+GEMINI_TTS_MALE_VOICE=Zephyr
+GEMINI_TTS_FEMALE_VOICE=Breeze
+USE_WHISPER_STT=true
+```
+
+### 8. 🖼️ Yukkuriスタイルのサムネイル再設計
+
+**課題**: 旧来のサムネイルはタイトルとキャラをそのまま重ねただけで、競合（ColdFusion / AI Explained）と比較して「AIスロップ」感があった。
+
+**解決策**（詳細は `THUMBNAIL_STYLE.md`）:
+- 左：情報ブロック、右：キャラクターバブルの二分構成。
+- 背景にグラデーション・斜めパターン・光沢楕円を重ね奥行きを演出。
+- `topic_badge_text` で「経済/テック/カルチャー/ライフ」のカテゴリバッジを配置。
+- `CHARACTER_SHADOW_COLOR` と白バブルで自然な合成、キャラ位置を10〜15pxずらして奥行きを表現。
+
+**サンプル作成**:
+```bash
+./venv/bin/python test_thumbnail_with_characters.py
+open outputs/2025-12-02/video_001/test_thumbnail_with_characters.jpg
+```
+
+**効果**:
+- 競合調査ベンチマーク比でCTR +2〜4ptを狙えるレイアウト。
+- サムネキャラと音声キャラが一致し、ブランド体験が一体化。
+
+また、`docs/reference_thumbnails/` にリファレンス収集フォルダを追加し、`thumbnail_generator.py` は **L-Split / Badge Stack / Before-After / Minimal** など複数プリセットを自動選択。キーワード（例: `vs`, `比較`, 数字2つ以上）に応じてレイアウトを切り替え、バッジや縦ラインなどの装飾もテンプレ化しました。
+
+さらに `thumb_lint.py` を追加し、出力サムネイルに対し以下を自動検証できるようにしました。
+- 解像度/アスペクト/ファイルサイズ
+- 平均輝度と明暗比率（45-195の範囲外や明部不足を警告）
+- パレット複雑度（支配色 >6 の場合NG）
+- 150px縮小時のエッジコントラスト（可読性が低いとアラート）
+
 ## 🎨 システムアーキテクチャの変更
 
 ### 新しいモジュール
