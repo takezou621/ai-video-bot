@@ -11,7 +11,8 @@ def generate_complete_metadata(
     script: Dict[str, Any],
     timing_data: List[Dict],
     video_duration_seconds: float,
-    claude_metadata: Dict[str, Any] = None
+    claude_metadata: Dict[str, Any] = None,
+    verified_source_urls: List[str] = None
 ) -> Dict[str, Any]:
     """
     Generate complete YouTube metadata with templates
@@ -21,6 +22,7 @@ def generate_complete_metadata(
         timing_data: Subtitle timing data
         video_duration_seconds: Video duration
         claude_metadata: Optional AI-generated metadata (from Gemini)
+        verified_source_urls: Optional list of verified source URLs (prioritized over script URLs)
 
     Returns:
         Complete metadata package
@@ -57,6 +59,17 @@ def generate_complete_metadata(
         next_topic="関連する経済トピック",
         hashtags=claude_metadata.get("hashtags", []) if claude_metadata else ["#経済", "#ビジネス", "#解説"]
     )
+
+    # Append source URLs for credibility
+    # Prioritize verified URLs passed directly, then fallback to script-generated ones
+    source_urls = verified_source_urls if verified_source_urls else script.get("source_urls", [])
+    
+    if source_urls:
+        full_description += "\n\n## 引用元・ソース\n"
+        for url in source_urls:
+            # Simple validation to ensure it's a URL
+            if url and url.startswith("http"):
+                full_description += f"- {url}\n"
 
     # Combine AI metadata with template metadata
     youtube_title = claude_metadata.get("youtube_title", title) if claude_metadata else title

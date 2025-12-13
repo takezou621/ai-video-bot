@@ -87,7 +87,7 @@ def run_pre_upload_checks(
     ))
 
     duration_diff = abs(expected_duration_seconds - timing_data[-1].get("end", 0) if timing_data else 0)
-    duration_ok = duration_diff <= 10
+    duration_ok = duration_diff <= 60  # Allow up to 60s difference for TTS estimation variance
     checks.append(CheckResult(
         "duration_match",
         duration_ok,

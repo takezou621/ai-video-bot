@@ -70,10 +70,28 @@ NAMED_ENTITY_LIBRARY = [
         "priority": 1.8,
     },
     {
-        "entity": "Tesla",
-        "aliases": ["Tesla", "テスラ", "Elon Musk", "イーロン・マスク", "Grok"],
+        "entity": "Perplexity",
+        "aliases": ["Perplexity", "Perplexity AI"],
         "type": "company",
-        "priority": 2.6,
+        "priority": 2.4,
+    },
+    {
+        "entity": "Stability AI",
+        "aliases": ["Stability AI", "Stable Diffusion"],
+        "type": "company",
+        "priority": 2.1,
+    },
+    {
+        "entity": "Mistral",
+        "aliases": ["Mistral", "Mistral AI"],
+        "type": "company",
+        "priority": 2.0,
+    },
+    {
+        "entity": "Hugging Face",
+        "aliases": ["Hugging Face", "HuggingFace"],
+        "type": "company",
+        "priority": 2.2,
     },
 ]
 
@@ -105,6 +123,57 @@ def _call_gemini(prompt: str, max_output_tokens: int = 2048, temperature: float 
     if not parts:
         raise RuntimeError("Gemini response missing content parts")
     return parts[0].get("text", "")
+
+
+def search_latest_ai_news(max_results: int = 15) -> List[Dict[str, Any]]:
+    """
+    Search specifically for latest English AI news to report in Japan
+    """
+    if not SERPER_API_KEY:
+        return _annotate_topics_with_entities(_fallback_topics("technology"))
+
+    try:
+        url = "https://google.serper.dev/news"
+        
+        # Specific query for AI news from reputable sources
+        query = 'artificial intelligence news "AI model" OR "LLM" OR "OpenAI" OR "Google DeepMind" OR "Anthropic" -site:youtube.com'
+        
+        payload = {
+            "q": query,
+            "gl": "us", # Search US news
+            "hl": "en", # English results
+            "num": max_results,
+            "tbm": "nws"
+        }
+
+        headers = {
+            "X-API-KEY": SERPER_API_KEY,
+            "Content-Type": "application/json"
+        }
+
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        data = response.json()
+        news_items = data.get("news", [])
+
+        results = []
+        for item in news_items:
+            # Filter out very short snippets or irrelevant sources if needed
+            results.append({
+                "title": item.get("title", ""),
+                "snippet": item.get("snippet", ""),
+                "url": item.get("link", ""),
+                "source": item.get("source", "Unknown Source"), # Keep source name
+                "date": item.get("date", ""),
+                "is_english": True # Marker for translation needs
+            })
+
+        results = _annotate_topics_with_entities(results)
+        print(f"Found {len(results)} latest AI news topics (US)")
+        return results
+
+    except Exception as e:
+        print(f"AI News Search failed: {e}")
+        return _annotate_topics_with_entities(_fallback_topics("technology"))
 
 
 def search_trending_topics(

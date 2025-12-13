@@ -42,6 +42,30 @@ TOPIC_PROMPT = """Create an engaging podcast dialogue about: {topic}
 
 The content should be informative yet conversational, like a friendly discussion between two knowledgeable hosts."""
 
+AI_NEWS_SUMMARY_PROMPT = """You are creating a Japanese podcast about the LATEST international AI news.
+
+CONTEXT: You have {news_count} recent English AI news articles. Your job is to:
+1. Select 3-5 most important/interesting news items
+2. Explain them clearly in Japanese for general audience
+3. Add context and implications for Japan/listeners
+
+NEWS ARTICLES:
+{news_articles}
+
+Create an engaging dialogue that:
+- Opens with a hook about the AI industry trends
+- Discusses each selected news item in detail with:
+  * What happened (translate key facts)
+  * Why it matters
+  * Impact on industry/society
+  * Japanese perspective when relevant
+- Closes with takeaways and future outlook
+
+Speaker A: Main host who explains news clearly
+Speaker B: Co-host who asks questions, adds reactions
+
+Make it informative yet accessible. Translate technical terms but keep original company/product names in English."""
+
 
 def get_past_topics(max_count: int = 20) -> List[str]:
     """
@@ -96,13 +120,14 @@ def get_past_topics(max_count: int = 20) -> List[str]:
     return past_topics
 
 
-def generate_story(topic: str = None, duration_minutes: int = None) -> Dict[str, Any]:
+def generate_story(topic: str = None, duration_minutes: int = None, news_articles: List[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Generate a podcast-style dialogue script.
 
     Args:
         topic: Topic to discuss (if None, generates about nostalgic Japan)
         duration_minutes: Target duration in minutes
+        news_articles: List of news articles for AI news summary mode
 
     Returns:
         Dictionary with title, dialogues, and metadata
@@ -135,7 +160,21 @@ def generate_story(topic: str = None, duration_minutes: int = None) -> Dict[str,
                 prompt += f"{i}. {past_topic}\n"
             prompt += "\nCreate a COMPLETELY DIFFERENT topic that has not been covered before.\n"
 
-        if topic:
+        if news_articles:
+            # AI News Summary mode - format articles for prompt
+            articles_text = ""
+            for i, article in enumerate(news_articles[:10], 1):
+                articles_text += f"\n[Article {i}]\n"
+                articles_text += f"Title: {article.get('title', '')}\n"
+                articles_text += f"Content: {article.get('snippet', '')}\n"
+                articles_text += f"Source: {article.get('source', '')}\n"
+                articles_text += f"URL: {article.get('url', '')}\n"
+
+            prompt += "\n\n" + AI_NEWS_SUMMARY_PROMPT.format(
+                news_count=len(news_articles),
+                news_articles=articles_text
+            )
+        elif topic:
             prompt += "\n\n" + TOPIC_PROMPT.format(topic=topic)
         else:
             # Generate diverse topics instead of always "Showa-era Japan"

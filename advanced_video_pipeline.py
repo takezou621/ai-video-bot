@@ -9,7 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Import all our new modules
-from web_search import search_trending_topics, select_topic_with_claude
+from web_search import search_trending_topics, select_topic_with_claude, search_latest_ai_news
 from claude_generator import (
     generate_dialogue_script_with_claude,
     generate_metadata_with_claude,
@@ -97,8 +97,16 @@ def generate_single_video(
         # Step 1: Discover trending topic (Blog's Prompt A)
         print("[1/10] 🔍 Searching for trending topics...")
         if use_web_search:
-            search_results = search_trending_topics(topic_category)
-            topic_analysis = select_topic_with_claude(search_results, duration_minutes)
+            if topic_category == "ai_news":
+                print("  Mode: Latest International AI News")
+                search_results = search_latest_ai_news()
+                # For AI news, we want to summarize multiple articles, not just one
+                topic_analysis = select_topic_with_claude(search_results, duration_minutes)
+                # Add all news articles for multi-article summary
+                topic_analysis["all_news_articles"] = search_results
+            else:
+                search_results = search_trending_topics(topic_category)
+                topic_analysis = select_topic_with_claude(search_results, duration_minutes)
         else:
             # Use fallback topic - avoid duplicates with past topics
             past_topics = get_past_topics(max_count=20)
@@ -180,12 +188,18 @@ def generate_single_video(
         print("\n[6/10] 📝 Generating metadata with Gemini + Templates...")
         claude_metadata = generate_metadata_with_claude(script, video_duration)
 
+        # Get source URL directly from topic analysis to avoid LLM truncation
+        verified_urls = []
+        if topic_analysis.get("selected_topic", {}).get("url"):
+            verified_urls.append(topic_analysis["selected_topic"]["url"])
+
         # Enhance with template system
         metadata = generate_complete_metadata(
             script=script,
             timing_data=timing_data,
             video_duration_seconds=video_duration,
-            claude_metadata=claude_metadata
+            claude_metadata=claude_metadata,
+            verified_source_urls=verified_urls
         )
         print(f"  YouTube Title: {metadata.get('youtube_title', 'N/A')}")
         print(f"  Timestamps: {len(metadata.get('timestamps', []))}")
@@ -441,8 +455,8 @@ def main():
 
     # Get configuration
     videos_per_day = int(os.getenv("VIDEOS_PER_DAY", "1"))
-    duration_minutes = int(os.getenv("DURATION_MINUTES", "10"))
-    topic_category = os.getenv("TOPIC_CATEGORY", "economics")
+    duration_minutes = int(os.getenv("DURATION_MINUTES", "5"))
+    topic_category = os.getenv("TOPIC_CATEGORY", "ai_news")
     use_web_search = os.getenv("USE_WEB_SEARCH", "true").lower() == "true"
 
     if videos_per_day > 1:

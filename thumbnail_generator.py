@@ -995,9 +995,24 @@ def create_thumbnail(
         )
 
     bg = bg.filter(ImageFilter.UnsharpMask(radius=1, percent=160, threshold=0))
-    # Save thumbnail
-    bg.save(output_path, 'JPEG', quality=95, optimize=True)
-    print(f"Thumbnail created: {output_path}")
+    # Save thumbnail with YouTube size limit (2MB)
+    # Start with quality=85, then reduce if needed
+    quality = 85
+    while quality >= 60:
+        bg.save(output_path, 'JPEG', quality=quality, optimize=True)
+        file_size = output_path.stat().st_size
+        # YouTube limit is 2MB
+        if file_size <= 2 * 1024 * 1024:
+            print(f"Thumbnail created: {output_path} ({file_size / 1024:.0f}KB, quality={quality})")
+            break
+        quality -= 5
+    else:
+        # If still too large, resize and save again
+        print(f"⚠️  Thumbnail too large, resizing...")
+        bg = bg.resize((1280, 720), Image.Resampling.LANCZOS)
+        bg.save(output_path, 'JPEG', quality=80, optimize=True)
+        file_size = output_path.stat().st_size
+        print(f"Thumbnail created (resized): {output_path} ({file_size / 1024:.0f}KB)")
 
     return output_path
 

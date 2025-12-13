@@ -152,8 +152,8 @@ def _fallback_tts(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[
         tts.save(str(temp_path))
         temp_files.append(temp_path)
 
-        # Estimate duration (rough: 150 chars per minute for Japanese)
-        duration = max(2.0, len(d["text"]) / 5.0)
+        # Estimate duration (rough: 8 chars per second for natural Japanese speech)
+        duration = max(1.5, len(d["text"]) / 8.0)
         timing_data.append({
             "speaker": d["speaker"],  # Preserve original speaker label (男性/女性 or A/B)
             "text": d["text"],

@@ -87,6 +87,11 @@ def generate_dialogue_script_with_claude(
         selected_topic = topic_analysis.get("selected_topic", {})
         snippet = selected_topic.get("snippet", "")
         hook_description = ContentTemplates.describe_hook_structure(title or "このトピック")
+        
+        # Check if this is an International AI News topic
+        is_ai_news = selected_topic.get("is_english", False)
+        source_name = selected_topic.get("source", "海外メディア")
+        source_url = selected_topic.get("url", "")
 
         # Get script structure from template
         script_structure = ContentTemplates.generate_script_structure(
@@ -110,7 +115,113 @@ def generate_dialogue_script_with_claude(
                 duplicate_avoidance += f"{i}. {past_topic}\n"
             duplicate_avoidance += "\n→ これらとは明確に区別できる、新鮮で独自性のあるトピックで台本を作成してください。\n"
 
-        prompt = f"""あなたは日本のYouTube向けに、経済・ビジネストピックを解説する対話形式ポッドキャストの台本を作成するプロのシナリオライターです。
+        if is_ai_news:
+            # === AI NEWS SPECIAL PROMPT ===
+            # Check if we have multiple news articles for summary
+            all_news = topic_analysis.get("all_news_articles", [])
+
+            if all_news and len(all_news) > 1:
+                # Multiple news summary mode
+                articles_text = ""
+                for i, article in enumerate(all_news[:10], 1):
+                    articles_text += f"\n[記事 {i}]\n"
+                    articles_text += f"タイトル: {article.get('title', '')}\n"
+                    articles_text += f"内容: {article.get('snippet', '')}\n"
+                    articles_text += f"ソース: {article.get('source', '')}\n"
+                    articles_text += f"URL: {article.get('url', '')}\n"
+
+                prompt = f"""あなたは海外の最新AIニュースを日本に届けるプロのテックニュースキャスターです。
+複数の海外AIニュースから、重要なトピックを選び、分かりやすく解説してください。
+
+# 最新AIニュース一覧 ({len(all_news)}件)
+{articles_text}
+
+# あなたの仕事
+1. 上記から**3-5つの重要ニュース**を選択
+2. 各ニュースを日本語で分かりやすく解説
+3. ニュース間の関連性や業界トレンドも説明
+4. 日本への影響や視聴者へのメリットも議論
+
+# 動画構成
+{structure_desc}
+
+# 台本要件
+- 対話形式:
+    - 男性（メインキャスター）: 海外ニュースを正確に伝える。ソースを明示。
+    - 女性（アシスタント）: 視聴者目線で質問や感想、日本への影響を議論。
+- 全体で約{duration_minutes}分
+- **必須**: 各ニュースでソース名（例：「TechCrunchによると」「The Vergeが報じた」）を明記
+- 複数ニュースの場合、セクション分けして順番に解説
+- 最後に全体のトレンド分析とまとめ
+
+# 構成イメージ
+1. フック: 「今週の最新AIニュースをまとめてお届けします！」
+2. ニュース1: [タイトル] → ソース提示 → 詳細解説
+3. ニュース2: [タイトル] → ソース提示 → 詳細解説
+4. ニュース3-5: （同様）
+5. トレンド分析: 「これらのニュースから見える業界の動き」
+6. まとめ: 視聴者へのメッセージ
+
+以下のJSON形式で出力してください:
+{{
+  "title": "【最新AI】(複数ニュースをまとめたキャッチーなタイトル)",
+  "description": "YouTube用説明文",
+  "thumbnail_text": "サムネイル用短文",
+  "background_prompt": "Modern tech newsroom, holographic displays, futuristic AI theme, professional lighting, cyberpunk aesthetic, 8k",
+  "dialogues": [
+    {{"speaker": "男性", "text": "..."}},
+    {{"speaker": "女性", "text": "..."}}
+  ],
+  "tags": ["AI", "ニュース", "最新", "テクノロジー", "海外"],
+  "source_urls": [複数のニュースURL]
+}}
+JSONのみを出力してください。"""
+            else:
+                # Single news article mode
+                prompt = f"""あなたは海外の最新AIニュースを日本に届けるプロのテックレポーターです。
+海外の情報をいち早く、正確に、そして分かりやすく日本の視聴者に伝えてください。
+
+# トピック情報 (英語ソース)
+タイトル: {title}
+ソース元: {source_name}
+内容: {snippet}
+URL: {source_url}
+
+# 動画構成
+{structure_desc}
+
+# 台本要件
+- 対話形式: 
+    - 男性（メインキャスター）: 冷静沈着、信頼感のある声。ニュースを正確に読み上げる。
+    - 女性（アシスタント/解説）: 視聴者目線で驚きや質問を投げかけ、補足情報を入れる。
+- 全体で約{duration_minutes}分
+- **重要: 情報の信頼性を担保するため、必ず会話の中で「{source_name}によると...」や「現地報道では...」とソースを明示してください。**
+- ガセネタと思われないよう、事実は正確に、推測は「推測ですが」と区別して伝えてください。
+- 専門用語は噛み砕いて説明してください。
+
+# 構成イメージ
+1. 速報フック: 「速報です！{title}というニュースが入ってきました！」
+2. ソース提示: 「{source_name}が報じたところによると...」
+3. 詳細解説: 技術的な凄さや、日本への影響を議論
+4. まとめ: 今後の展望
+
+以下のJSON形式で出力してください:
+{{
+  "title": "【速報】(日本語のキャッチーなタイトル)",
+  "description": "YouTube用説明文",
+  "thumbnail_text": "サムネイル用短文",
+  "background_prompt": "Newsroom studio background, cyberpunk accents, professional lighting, 8k",
+  "dialogues": [
+    {{"speaker": "男性", "text": "..."}}, 
+    {{"speaker": "女性", "text": "..."}}
+  ],
+  "tags": ["AI", "ニュース", "速報", "テクノロジー"],
+  "source_urls": ["{source_url}"]
+}}
+JSONのみを出力してください。"""
+        else:
+            # === STANDARD PROMPT (Podcast) ===
+            prompt = f"""あなたは日本のYouTube向けに、経済・ビジネストピックを解説する対話形式ポッドキャストの台本を作成するプロのシナリオライターです。
 {duplicate_avoidance}
 # 動画構成テンプレート
 以下の構成に沿って台本を作成してください：
