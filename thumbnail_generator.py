@@ -27,15 +27,7 @@ CHARACTER_VARIANTS = {
     "joy": ("male_host_happy.png", "female_host_happy.png")
 }
 
-# Character display settings
-CHARACTER_HEIGHT = 320
-CHARACTER_SPACING = 24
-CHARACTER_MARGIN_LEFT = 60
-CHARACTER_MARGIN_BOTTOM = 30
-CHARACTER_SHADOW_OFFSET = (18, 18)
-CHARACTER_SHADOW_BLUR = 18
-CHARACTER_SHADOW_COLOR = (0, 0, 0, 160)
-
+# Character display settings (Legacy - Removed)
 # Text styling / typography constraints
 TITLE_FONT_SIZE = 80
 SUBTITLE_FONT_SIZE = 48
@@ -574,61 +566,6 @@ def _boost_title_highlight(
     return image
 
 
-def _load_character_images(
-    target_height: int = CHARACTER_HEIGHT,
-    emotion: str = "default"
-) -> Optional[Tuple[Image.Image, Image.Image]]:
-    """Load and resize character images if available"""
-    male_path, female_path = CHARACTER_VARIANTS.get(
-        emotion,
-        CHARACTER_VARIANTS["default"]
-    )
-    male_file = ASSETS_DIR / male_path
-    female_file = ASSETS_DIR / female_path
-    if not male_file.exists() or not female_file.exists():
-        male_file = MALE_CHARACTER_PATH
-        female_file = FEMALE_CHARACTER_PATH
-        if not male_file.exists() or not female_file.exists():
-            return None
-
-    try:
-        male_char = Image.open(male_file).convert('RGBA')
-        female_char = Image.open(female_file).convert('RGBA')
-    except Exception as e:
-        print(f"Warning: Failed to load character images: {e}")
-        return None
-
-    def resize_character(char_img: Image.Image) -> Image.Image:
-        aspect_ratio = char_img.width / char_img.height
-        new_width = int(target_height * aspect_ratio)
-        return char_img.resize((new_width, target_height), Image.Resampling.LANCZOS)
-
-    return resize_character(male_char), resize_character(female_char)
-
-
-def _paste_with_shadow(
-    base: Image.Image,
-    char_img: Image.Image,
-    position: Tuple[int, int],
-    shadow_offset: Tuple[int, int] = CHARACTER_SHADOW_OFFSET,
-    blur_radius: int = CHARACTER_SHADOW_BLUR
-) -> Image.Image:
-    """Paste character with a soft drop shadow to blend with background"""
-    mask = char_img.split()[-1]
-    shadow_layer = Image.new('RGBA', base.size, (0, 0, 0, 0))
-
-    shadow_img = Image.new('RGBA', char_img.size, CHARACTER_SHADOW_COLOR)
-    shadow_layer.paste(
-        shadow_img,
-        (position[0] + shadow_offset[0], position[1] + shadow_offset[1]),
-        mask
-    )
-    shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(blur_radius))
-    base = Image.alpha_composite(base, shadow_layer)
-    base.paste(char_img, position, mask)
-    return base
-
-
 def _apply_three_bar_layout(
     image: Image.Image,
     theme: Dict[str, Tuple[int, int, int]]
@@ -678,102 +615,76 @@ def _apply_three_bar_layout(
     return Image.alpha_composite(image.convert('RGBA'), overlay).convert('RGB')
 
 
-def add_characters_to_thumbnail(
-    thumbnail: Image.Image,
-    add_characters: bool = True,
-    characters: Optional[Tuple[Image.Image, Image.Image]] = None,
-    layout: Optional[Dict] = None
-) -> Image.Image:
-    """
-    Add Ghibli-style dialogue characters to the bottom-right corner
+import re
 
-    Args:
-        thumbnail: Base thumbnail image
-        add_characters: Whether to add characters (default: True)
-
-    Returns:
-        Thumbnail with characters composited
-    """
-    if not add_characters:
-        return thumbnail
-
-    if characters is None:
-        characters = _load_character_images()
-    if not characters:
-        print("Warning: Character images not found, skipping character overlay")
-        return thumbnail
-
-    male_char, female_char = characters
-    anchor = (layout or {}).get("character_anchor", "right")
-    char_offset_y = (layout or {}).get("character_vertical_offset", 0)
-
-    cluster_width = male_char.width + female_char.width - 80 + CHARACTER_SPACING
-    cluster_height = CHARACTER_HEIGHT + 140
-    if anchor == "right":
-        cluster_x = THUMBNAIL_WIDTH - cluster_width - max(40, CHARACTER_MARGIN_LEFT)
-    else:
-        cluster_x = max(0, CHARACTER_MARGIN_LEFT - 40)
-    cluster_y = THUMBNAIL_HEIGHT - CHARACTER_MARGIN_BOTTOM - cluster_height + char_offset_y
-
-    bubble = Image.new('RGBA', (cluster_width + 120, cluster_height), (0, 0, 0, 0))
-    bubble_draw = ImageDraw.Draw(bubble)
-    bubble_draw.rounded_rectangle(
-        [(0, 0), (bubble.width, bubble.height)],
-        radius=60,
-        fill=(255, 255, 255, 215)
-    )
-    bubble_draw.ellipse(
-        (20, bubble.height - 80, bubble.width - 20, bubble.height - 10),
-        fill=(0, 0, 0, 40)
-    )
-
-    thumbnail_rgba = thumbnail.convert('RGBA')
-    thumbnail_rgba.alpha_composite(bubble, dest=(cluster_x, cluster_y))
-
-    if anchor == "right":
-        male_x = THUMBNAIL_WIDTH - CHARACTER_MARGIN_LEFT - male_char.width
-        male_y = THUMBNAIL_HEIGHT - CHARACTER_MARGIN_BOTTOM - male_char.height + char_offset_y
-        female_x = male_x - female_char.width + CHARACTER_SPACING
-        female_y = male_y - 25
-    else:
-        male_x = CHARACTER_MARGIN_LEFT + 20
-        male_y = THUMBNAIL_HEIGHT - CHARACTER_MARGIN_BOTTOM - male_char.height + char_offset_y
-        female_x = male_x + male_char.width - 60
-        female_y = male_y - 30
-
-    thumbnail_rgba = _paste_with_shadow(thumbnail_rgba, male_char, (male_x, male_y))
-    thumbnail_rgba = _paste_with_shadow(thumbnail_rgba, female_char, (female_x, female_y))
-
-    # Convert back to RGB
-    return thumbnail_rgba.convert('RGB')
+def draw_text_line_with_highlight(
+    draw: ImageDraw.Draw,
+    xy: Tuple[int, int],
+    text: str,
+    base_font: ImageFont.FreeTypeFont,
+    text_color: Tuple[int, int, int],
+    highlight_color: Tuple[int, int, int],
+    shadow_offset: int = 4
+):
+    """Draw a line of text with numbers highlighted"""
+    # Regex to capture numbers with units (including Japanese numerals)
+    # Matches: 100, 100%, 100万, 1.5倍, etc.
+    pattern = r'(\d+(?:[,.]\d+)?(?:%|億|万|千|円|ドル|人|倍|年|月|日|代)?)'
+    
+    parts = re.split(pattern, text)
+    x, y = xy
+    
+    for part in parts:
+        if not part:
+            continue
+            
+        # Check if part is a number match
+        is_number = re.match(pattern, part)
+        
+        color = highlight_color if is_number else text_color
+        
+        # Draw shadow (stronger for numbers)
+        s_off = shadow_offset + 2 if is_number else shadow_offset
+        for off in range(1, s_off + 1):
+             draw.text((x + off, y + off), part, font=base_font, fill=SHADOW_COLOR)
+             
+        # Draw text
+        draw.text((x, y), part, font=base_font, fill=color)
+        
+        # Advance X
+        bbox = base_font.getbbox(part)
+        w = bbox[2] - bbox[0]
+        x += w
 
 
 def create_thumbnail(
     background_image_path: Path,
-    thumbnail_text: str,
-    subtitle_text: str = "",
+    thumbnail_text: str = "", # Keep for compatibility, but won't be drawn
+    subtitle_text: str = "", # Keep for compatibility, but won't be drawn
     output_path: Path = None,
-    accent_color_index: int = 0,
-    add_characters: bool = True,
-    topic_badge_text: str = "",
-    badge_icon_path: Optional[Path] = None,
-    layout_name: Optional[str] = None,
-    image_prompt: Optional[str] = None
+    accent_color_index: int = 0, # Keep for compatibility, but won't be used
+    topic_badge_text: str = "", # Keep for compatibility, but won't be drawn
+    badge_icon_path: Optional[Path] = None, # Keep for compatibility, but won't be used
+    layout_name: Optional[str] = None, # Keep for compatibility, but won't be used
+    image_prompt: Optional[str] = None,
+    emotion: Optional[str] = None # Keep for compatibility, but won't be used
 ) -> Path:
     """
-    Create a YouTube thumbnail with text overlay and character images
+    Create a YouTube thumbnail. If image_prompt is provided and USE_NANO_BANANA_PRO is true,
+    it generates the background using NanoBanana. Otherwise, it loads from background_image_path.
+    No additional processing or text overlay is performed on the image.
 
     Args:
-        background_image_path: Path to background image
-        thumbnail_text: Main text (large, eye-catching)
-        subtitle_text: Optional subtitle text
-        output_path: Output path for thumbnail
-        accent_color_index: Index of accent color (0-3)
-        add_characters: Add Ghibli-style dialogue characters (default: True)
-        topic_badge_text: Optional badge text for category
-        badge_icon_path: Optional icon displayed near badge
-        layout_name: Optional layout preset name (e.g., "three_bar_layout")
-        image_prompt: Original prompt used for background generation (for AI text rendering)
+        background_image_path: Path to background image (used if not generating with NanoBanana).
+        thumbnail_text: Main text (ignored if image_prompt is used for NanoBanana).
+        subtitle_text: Optional subtitle text (ignored if image_prompt is used for NanoBanana).
+        output_path: Output path for thumbnail.
+        accent_color_index: Index of accent color (ignored).
+        topic_badge_text: Optional badge text for category (ignored).
+        badge_icon_path: Optional icon displayed near badge (ignored).
+        layout_name: Optional layout preset name (ignored).
+        image_prompt: Prompt for NanoBanana to generate the background image and title.
+        emotion: Explicit emotion (ignored).
 
     Returns:
         Path to generated thumbnail
@@ -783,236 +694,27 @@ def create_thumbnail(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # DIRECT AI GENERATION MODE
-    # If using Nano Banana Pro and a prompt is provided, let the AI generate the text directly.
-    # This skips all manual PIL composition (characters, text overlays, etc.)
+    bg: Image.Image
     if USE_NANO_BANANA_PRO and image_prompt:
-        print(f"🎨 Using Nano Banana Pro for full thumbnail generation (including text)...")
-        
-        # Sanitize text for prompt
-        clean_title = thumbnail_text.replace("\n", " ")
-        clean_subtitle = subtitle_text.replace("\n", " ")
-        
-        # Construct a prompt that instructs the model to render text
-        full_prompt = (
-            f"{image_prompt}. "
-            f"Important: The image must clearly feature the Japanese text '{clean_title}' written in large, bold, elegant typography in the center or top area. "
-            f"The style should be a high-quality YouTube thumbnail, eye-catching and vibrant. "
-            f"Ensure the text is legible and integrated naturally into the composition."
-        )
-        if clean_subtitle:
-            full_prompt += f" Also include smaller subtitle text: '{clean_subtitle}'."
-
-        # Generate the image directly to output path
-        result = generate_image(full_prompt, output_path)
-        if result and result.exists():
-            print(f"✅ AI-generated thumbnail created: {output_path}")
-            return output_path
+        # Generate image using NanoBanana
+        print(f"Generating background image with NanoBanana Pro using prompt: {image_prompt}")
+        generated_image_path = generate_image(image_prompt, output_path)
+        if not generated_image_path or not generated_image_path.exists():
+            print(f"NanoBanana Pro failed to generate image, falling back to existing background: {background_image_path}")
+            bg = Image.open(background_image_path).convert('RGB')
         else:
-            print("⚠️ AI generation failed, falling back to standard composition.")
-
-    # Standard Composition Logic (Fallback or if Nano Banana is disabled)
-    sanitized_title = _craft_headline(thumbnail_text)
-    sanitized_subtitle = _sanitize_text(subtitle_text, MAX_SUBTITLE_CHARS)
-    emotion = _select_emotion(sanitized_title)
-    characters = _load_character_images(emotion=emotion) if add_characters else None
-    theme = _select_theme(topic_badge_text, accent_color_index)
-
-    # Use specified layout or auto-select
-    if layout_name:
-        layout = _get_layout_by_name(layout_name)
-        if not layout:
-            print(f"Warning: Layout '{layout_name}' not found, using auto-selection")
-            layout = _select_layout(sanitized_title, bool(characters))
+            bg = Image.open(generated_image_path).convert('RGB')
     else:
-        layout = _select_layout(sanitized_title, bool(characters))
+        # Load from provided path
+        bg = Image.open(background_image_path).convert('RGB')
 
-    # Load and prepare background
-    bg = Image.open(background_image_path).convert('RGB')
-
-    # Resize to thumbnail dimensions
+    # Resize to thumbnail dimensions (YouTube recommended: 1280x720)
     bg = bg.resize((THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT), Image.Resampling.LANCZOS)
 
-    # Apply slight blur and darken for better text readability
-    bg = bg.filter(ImageFilter.GaussianBlur(radius=2))
-    enhancer = ImageEnhance.Brightness(bg)
-    bg = enhancer.enhance(0.6)  # Darken to 60%
-    accent_color = theme.get("accent", ACCENT_COLORS[accent_color_index % len(ACCENT_COLORS)])
+    # Save thumbnail
+    bg.save(output_path, 'JPEG', quality=90, optimize=True) # Use a fixed quality since no post-processing
 
-    # Apply pattern overlay (skip for three-bar layout)
-    if not layout.get("three_bar_style"):
-        bg = _apply_layout_patterns(bg, theme, layout.get("pattern", "standard"))
-
-    # Apply three-bar layout if specified
-    if layout.get("three_bar_style"):
-        bg = _apply_three_bar_layout(bg, theme)
-
-    # Create overlay for text (skip for three-bar layout)
-    if not layout.get("three_bar_style"):
-        overlay = Image.new('RGBA', bg.size, (0, 0, 0, 0))
-        draw = ImageDraw.Draw(overlay)
-
-        # Add colored accent bar at top
-        draw.rectangle([(0, 0), (THUMBNAIL_WIDTH, 20)], fill=accent_color + (230,))
-
-        # Add semi-transparent gradient overlay at bottom for text background
-        gradient_height = 400
-        for i in range(gradient_height):
-            alpha = int((i / gradient_height) * 180)
-            y = THUMBNAIL_HEIGHT - gradient_height + i
-            draw.rectangle(
-                [(0, y), (THUMBNAIL_WIDTH, y + 1)],
-                fill=(0, 0, 0, alpha)
-            )
-
-        # Composite overlay
-        bg_rgba = bg.convert('RGBA')
-        bg = Image.alpha_composite(bg_rgba, overlay).convert('RGB')
-    if topic_badge_text:
-        bg = _draw_topic_badge(
-            bg,
-            topic_badge_text,
-            accent_color,
-            badge_icon_path,
-            badge_color=theme.get("badge")
-        )
-    bg = _apply_layout_decorations(bg, layout, theme)
-    draw = ImageDraw.Draw(bg)
-
-    # Get fonts
-    title_font = get_japanese_font(TITLE_FONT_SIZE)
-    subtitle_font = get_japanese_font(SUBTITLE_FONT_SIZE)
-
-    # Calculate text positioning
-    text_area = layout.get("text_area", {})
-    text_start_x = text_area.get("x", 80)
-    max_text_width = int(THUMBNAIL_WIDTH * text_area.get("width_ratio", 0.6))
-    align_center = layout.get("text_align", "left") == "center"
-
-    # Wrap text with typography constraints
-    title_lines = wrap_text(
-        sanitized_title,
-        title_font,
-        max_text_width,
-        max_lines=MAX_TITLE_LINES
-    )
-    subtitle_lines = wrap_text(
-        sanitized_subtitle,
-        subtitle_font,
-        max_text_width,
-        max_lines=2
-    ) if sanitized_subtitle else []
-
-    title_line_height = layout.get("line_spacing", TITLE_FONT_SIZE + 10)
-    subtitle_gap = layout.get("subtitle_gap", 24)
-    subtitle_line_height = SUBTITLE_FONT_SIZE + 6
-    subtitle_block = (subtitle_line_height * len(subtitle_lines)) + (subtitle_gap if subtitle_lines else 0)
-    text_block_height = len(title_lines) * title_line_height + subtitle_block
-
-    if text_area.get("vertical") == "center":
-        start_y = max(120, (THUMBNAIL_HEIGHT - text_block_height) // 2)
-    else:
-        start_y = text_area.get("y", THUMBNAIL_HEIGHT - 350)
-
-    # Create isolated text layer
-    text_layer = Image.new('RGBA', bg.size, (0, 0, 0, 0))
-    text_draw = ImageDraw.Draw(text_layer)
-
-    # Optional backdrop for readability
-    if layout.get("text_backdrop"):
-        pad_x = 50
-        pad_y = 40
-        if align_center:
-            center_x = THUMBNAIL_WIDTH // 2
-            left = max(30, center_x - max_text_width // 2 - pad_x)
-            right = min(THUMBNAIL_WIDTH - 30, center_x + max_text_width // 2 + pad_x)
-        else:
-            left = max(20, text_start_x - pad_x)
-            right = min(THUMBNAIL_WIDTH - 20, text_start_x + max_text_width + pad_x)
-        top = max(30, start_y - pad_y)
-        bottom = min(THUMBNAIL_HEIGHT - 30, start_y + text_block_height + pad_y)
-        bg = _stabilize_text_background(bg, (left, top, right, bottom), theme)
-        backdrop = Image.new('RGBA', (right - left, bottom - top), (255, 255, 255, 255))
-        text_layer.paste(backdrop, (left, top), backdrop)
-        bg = _boost_title_highlight(bg, (left, top, right, bottom))
-
-    # Draw main title
-    current_y = start_y
-    for line in title_lines:
-        bbox = title_font.getbbox(line)
-        text_width = bbox[2] - bbox[0]
-        if align_center:
-            x = (THUMBNAIL_WIDTH - text_width) // 2
-        else:
-            x = text_start_x
-
-        add_text_with_shadow(
-            text_draw, (x, current_y), line, title_font, TEXT_COLOR, shadow_offset=6
-        )
-        current_y += title_line_height
-
-    # Draw subtitle if provided
-    if subtitle_lines:
-        current_y += subtitle_gap
-        highlight_color = theme.get("highlight", accent_color)
-        for line in subtitle_lines:
-            bbox = subtitle_font.getbbox(line)
-            text_width = bbox[2] - bbox[0]
-            if align_center:
-                x = (THUMBNAIL_WIDTH - text_width) // 2
-            else:
-                x = text_start_x
-
-            add_text_with_shadow(
-                text_draw, (x, current_y), line, subtitle_font, highlight_color, shadow_offset=4
-            )
-            current_y += subtitle_line_height
-
-    # Composite text layer last to avoid overlap
-    bg = Image.alpha_composite(bg.convert('RGBA'), text_layer).convert('RGB')
-    draw = ImageDraw.Draw(bg)
-
-    # Add decorative corner elements
-    corner_size = 40
-    draw.rectangle(
-        [(0, 0), (corner_size, corner_size)],
-        fill=accent_color
-    )
-    draw.rectangle(
-        [(THUMBNAIL_WIDTH - corner_size, 0), (THUMBNAIL_WIDTH, corner_size)],
-        fill=accent_color
-    )
-
-    _evaluate_thumbnail_quality(title_lines, subtitle_lines, layout)
-
-    # Add dialogue characters to layout-defined area
-    if characters and add_characters:
-        bg = add_characters_to_thumbnail(
-            bg,
-            add_characters=True,
-            characters=characters,
-            layout=layout
-        )
-
-    bg = bg.filter(ImageFilter.UnsharpMask(radius=1, percent=160, threshold=0))
-    # Save thumbnail with YouTube size limit (2MB)
-    # Start with quality=85, then reduce if needed
-    quality = 85
-    while quality >= 60:
-        bg.save(output_path, 'JPEG', quality=quality, optimize=True)
-        file_size = output_path.stat().st_size
-        # YouTube limit is 2MB
-        if file_size <= 2 * 1024 * 1024:
-            print(f"Thumbnail created: {output_path} ({file_size / 1024:.0f}KB, quality={quality})")
-            break
-        quality -= 5
-    else:
-        # If still too large, resize and save again
-        print(f"⚠️  Thumbnail too large, resizing...")
-        bg = bg.resize((1280, 720), Image.Resampling.LANCZOS)
-        bg.save(output_path, 'JPEG', quality=80, optimize=True)
-        file_size = output_path.stat().st_size
-        print(f"Thumbnail created (resized): {output_path} ({file_size / 1024:.0f}KB)")
+    print(f"Thumbnail created: {output_path}")
 
     return output_path
 
@@ -1022,8 +724,7 @@ def create_multiple_thumbnail_variants(
     thumbnail_text: str,
     subtitle_text: str = "",
     output_dir: Path = None,
-    count: int = 3,
-    add_characters: bool = True
+    count: int = 3
 ) -> list:
     """
     Create multiple thumbnail variants with different accent colors
@@ -1034,7 +735,6 @@ def create_multiple_thumbnail_variants(
         subtitle_text: Optional subtitle
         output_dir: Output directory
         count: Number of variants to create
-        add_characters: Add dialogue characters (default: True)
 
     Returns:
         List of paths to generated thumbnails
@@ -1050,8 +750,7 @@ def create_multiple_thumbnail_variants(
             thumbnail_text,
             subtitle_text,
             output_path,
-            accent_color_index=i,
-            add_characters=add_characters
+            accent_color_index=i
         )
         thumbnails.append(output_path)
 
@@ -1063,19 +762,18 @@ if __name__ == "__main__":
     # Test thumbnail generation
     from nano_banana_client import generate_image
 
-    # Generate a test background
+    # Generate a test background with text using NanoBanana
     test_dir = Path("test_output")
     test_dir.mkdir(exist_ok=True)
 
-    bg_path = test_dir / "test_bg.png"
-    generate_image("Cozy Japanese room, Lo-fi anime style, warm lighting", bg_path)
-
-    # Create thumbnail
+    test_image_prompt = "YouTube thumbnail: Japanese man shocked by 'Economic News Explained', with text '経済ニュース解説' on it, bright, clear, dynamic. No additional text overlays, use a professional font."
+    
+    # Create thumbnail using the image_prompt for NanoBanana generation
     create_thumbnail(
-        bg_path,
-        "経済ニュース解説",
-        "最新トレンドを分析",
-        test_dir / "test_thumbnail.jpg"
+        background_image_path=test_dir / "fallback_bg.png", # Fallback image in case NanoBanana fails
+        output_path=test_dir / "test_thumbnail_nanobanana.jpg",
+        image_prompt=test_image_prompt,
+        # Other arguments are ignored now
     )
 
     print("Test complete!")
