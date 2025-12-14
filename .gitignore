@@ -1,10 +1,14 @@
-# Output files
+# Output files (video, thumbnails, manifests, etc.)
 outputs/
 
-# Environment
+# Logs and run artifacts
+logs/
+generation.log
+
+# Environment (local secrets only; use .env.sample for sharing schema)
 .env
 
-# YouTube API credentials
+# YouTube API credentials and tokens (must not be committed)
 youtube_credentials.json
 youtube_token.pickle
 
@@ -20,6 +24,9 @@ env/
 *.egg-info/
 dist/
 build/
+
+# Tool-specific local config
+.claude/
 
 # IDE
 .idea/
@@ -37,6 +44,6 @@ Thumbs.db
 *.temp
 raw_audio.pcm
 
-# Test outputs
+# Test / generation outputs
 test_output/
 nanobanana-output/
