@@ -7,11 +7,10 @@ from typing import List, Dict
 import os
 
 try:
-    from moviepy.editor import (
+    from moviepy import (
         ImageClip, AudioFileClip, TextClip, CompositeVideoClip,
-        concatenate_videoclips
+        concatenate_videoclips, vfx
     )
-    from moviepy.video.fx import fadein, fadeout
     MOVIEPY_AVAILABLE = True
 except ImportError:
     MOVIEPY_AVAILABLE = False
@@ -24,7 +23,7 @@ VIDEO_HEIGHT = 1080
 FPS = 30
 
 # Subtitle styling
-FONT_SIZE = 56
+FONT_SIZE = 52
 # Male speaker: Blue accent
 MALE_COLOR = '#78C8FF'
 # Female speaker: Pink accent
@@ -68,8 +67,8 @@ def make_podcast_video_moviepy(
     duration = audio.duration
 
     # Create background clip
-    background = ImageClip(str(background_path)).set_duration(duration)
-    background = background.resize((VIDEO_WIDTH, VIDEO_HEIGHT))
+    background = ImageClip(str(background_path)).with_duration(duration)
+    background = background.resized((VIDEO_WIDTH, VIDEO_HEIGHT))
 
     # Create subtitle clips
     subtitle_clips = []
@@ -99,26 +98,35 @@ def make_podcast_video_moviepy(
             font = _find_japanese_font()
 
             txt_clip = TextClip(
-                text,
-                fontsize=FONT_SIZE,
+                text=text,
+                font_size=FONT_SIZE,
                 color=TEXT_COLOR,
                 font=font,
                 size=(VIDEO_WIDTH - 200, None),
                 method='caption',
-                align='center',
+                text_align='center',
                 stroke_color=color,
                 stroke_width=3
             )
 
-            # Position at bottom
-            txt_clip = txt_clip.set_position(('center', VIDEO_HEIGHT - 200))
-            txt_clip = txt_clip.set_start(start)
-            txt_clip = txt_clip.set_duration(seg_duration)
+            # Position with sufficient bottom margin to prevent cut-off
+            # Ensures 2-3 lines of text with stroke fit safely within the frame
+            # Y position is the TOP of the text clip, so we need extra margin
+            # for text height (~100-120px) + stroke width + internal padding
+            # Setting to 400px to ensure complete visibility with safety margin
+            bottom_margin = 400
+            txt_clip = txt_clip.with_position(
+                ('center', VIDEO_HEIGHT - bottom_margin)
+            )
+            txt_clip = txt_clip.with_start(start)
+            txt_clip = txt_clip.with_duration(seg_duration)
 
             # Add fade effects for smoother transitions
             if seg_duration > 0.5:
-                txt_clip = fadein(txt_clip, 0.2)
-                txt_clip = fadeout(txt_clip, 0.2)
+                txt_clip = txt_clip.with_effects([
+                    vfx.FadeIn(0.2),
+                    vfx.FadeOut(0.2)
+                ])
 
             subtitle_clips.append(txt_clip)
 
@@ -127,14 +135,17 @@ def make_podcast_video_moviepy(
             # Create simple text clip as fallback
             try:
                 txt_clip = TextClip(
-                    text[:100],  # Limit length
-                    fontsize=FONT_SIZE,
+                    text=text[:100],  # Limit length
+                    font_size=FONT_SIZE,
                     color=TEXT_COLOR,
                     method='label'
                 )
-                txt_clip = txt_clip.set_position(('center', VIDEO_HEIGHT - 200))
-                txt_clip = txt_clip.set_start(start)
-                txt_clip = txt_clip.set_duration(min(seg_duration, 5))
+                bottom_margin = 400
+                txt_clip = txt_clip.with_position(
+                    ('center', VIDEO_HEIGHT - bottom_margin)
+                )
+                txt_clip = txt_clip.with_start(start)
+                txt_clip = txt_clip.with_duration(min(seg_duration, 5))
                 subtitle_clips.append(txt_clip)
             except:
                 continue
@@ -147,7 +158,7 @@ def make_podcast_video_moviepy(
     )
 
     # Set audio
-    video = video.set_audio(audio)
+    video = video.with_audio(audio)
 
     # Write video file
     print("  Rendering video (this may take a while)...")
