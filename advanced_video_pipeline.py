@@ -17,7 +17,11 @@ from claude_generator import (
 )
 from tts_generator import generate_dialogue_audio
 from thumbnail_generator import create_thumbnail
+from thumbnail_prompt_generator import generate_thumbnail_prompt
 from llm_story import get_past_topics
+from topic_history import add_topic_to_history
+from cleanup import cleanup_video_temp_files
+import shutil
 
 # Import video maker with MoviePy support
 try:
@@ -101,12 +105,12 @@ def generate_single_video(
                 print("  Mode: Latest International AI News")
                 search_results = search_latest_ai_news()
                 # For AI news, we want to summarize multiple articles, not just one
-                topic_analysis = select_topic_with_claude(search_results, duration_minutes)
+                topic_analysis = select_topic_with_claude(search_results, duration_minutes, topic_category)
                 # Add all news articles for multi-article summary
                 topic_analysis["all_news_articles"] = search_results
             else:
                 search_results = search_trending_topics(topic_category)
-                topic_analysis = select_topic_with_claude(search_results, duration_minutes)
+                topic_analysis = select_topic_with_claude(search_results, duration_minutes, topic_category)
         else:
             # Use fallback topic - avoid duplicates with past topics
             past_topics = get_past_topics(max_count=20)
@@ -151,10 +155,18 @@ def generate_single_video(
                   ensure_ascii=False, indent=2)
 
         # Step 3: Generate background image
-        print("\n[3/10] 🎨 Generating background image...")
+        print("\n[3/10] 🎨 Generating background image with optimized prompt...")
         bg_path = outdir / "background.png"
-        bg_prompt = script.get("background_prompt",
-            "Cozy Japanese room, Lo-fi anime style, warm lighting, desk with lamp, peaceful atmosphere")
+        
+        # Generate optimized prompt and thumbnail data
+        thumbnail_data = generate_thumbnail_prompt(
+            title=script["title"],
+            topic_category=topic_category,
+            thumbnail_text=script.get("thumbnail_text")
+        )
+        bg_prompt = thumbnail_data["prompt"]
+        print(f"  Prompt: {bg_prompt[:50]}...")
+        
         generate_image(bg_prompt, bg_path)
         print(f"  Background saved: {bg_path}")
 
@@ -223,19 +235,34 @@ def generate_single_video(
                   ensure_ascii=False, indent=2)
         print(f"  Generated {len(comments)} comments (Gemini: {len(claude_comments)}, Template: {len(template_comments)})")
 
-        # Step 8: Generate thumbnail
+        # Step 8: Generate thumbnail with background + PIL text overlay
         print("\n[8/10] 🖼️  Generating thumbnail...")
-        thumbnail_text = script.get("thumbnail_text", topic_title[:10])
         thumbnail_path = outdir / "thumbnail.jpg"
         badge_text = BADGE_LABELS.get(topic_category, topic_category or "解説")
+
+        # Generate thumbnail prompt for BACKGROUND ONLY (text will be added with PIL)
+        # Use YouTube title to generate concise thumbnail text
+        thumbnail_prompt_data = generate_thumbnail_prompt(
+            title=metadata["youtube_title"],  # Use YouTube title for consistency
+            topic_category=topic_category,
+            thumbnail_text=None,  # Let it auto-generate from title
+            named_entities=metadata.get("named_entities", [])
+        )
+        thumbnail_final_prompt = thumbnail_prompt_data["prompt"]
+
+        # Get thumbnail image model from environment
+        thumbnail_image_model = os.getenv("THUMBNAIL_IMAGE_MODEL", None)
+
         create_thumbnail(
-            bg_path,
-            thumbnail_text,
+            background_image_path=bg_path,
+            thumbnail_text=thumbnail_prompt_data["thumbnail_text"],  # Use generated text
             subtitle_text="",
             output_path=thumbnail_path,
             accent_color_index=video_number % 4,
             topic_badge_text=badge_text,
-            image_prompt=bg_prompt  # Pass background prompt for AI text rendering
+            image_prompt=thumbnail_final_prompt,
+            emotion=thumbnail_data["emotion"],
+            image_model=thumbnail_image_model  # Use environment-specified model
         )
         print(f"  Thumbnail saved: {thumbnail_path}")
         lint_warnings = lint_thumbnail(thumbnail_path)
@@ -343,11 +370,27 @@ def generate_single_video(
         # Notify completion
         notify_video_complete(video_number, topic_title, str(video_path), video_duration, metadata)
 
+        # Add topic to history to prevent duplicates
+        topic_url = topic_analysis.get("selected_topic", {}).get("url", topic_analysis.get("url", ""))
+        source_urls = topic_analysis.get("source_urls", [])
+        if not source_urls and "all_news_articles" in topic_analysis:
+            # Extract URLs from all news articles
+            source_urls = [article.get("url", "") for article in topic_analysis.get("all_news_articles", [])]
+
+        add_topic_to_history(
+            title=topic_title,
+            url=topic_url,
+            source_urls=source_urls
+        )
+
         print(f"\n✅ Video #{video_number} Complete!")
         print(f"   Output: {video_path}")
         print(f"   Duration: {int(video_duration // 60)}:{int(video_duration % 60):02d}")
         if youtube_result:
             print(f"   YouTube: {youtube_result['video_url']}")
+
+        # Cleanup temporary files
+        cleanup_video_temp_files(outdir)
 
         return manifest
 
@@ -371,6 +414,13 @@ def generate_single_video(
             log_video_to_sheets(log_entry)
         except:
             pass
+
+        # Cleanup temporary files even on error
+        try:
+            if 'outdir' in locals() and outdir.exists():
+                cleanup_video_temp_files(outdir)
+        except Exception as cleanup_error:
+            print(f"Warning: Cleanup failed: {cleanup_error}")
 
         raise
 

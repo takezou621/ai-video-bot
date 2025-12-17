@@ -45,11 +45,17 @@ def generate_image(prompt, out_path: Path, max_retries=3, model=None):
         "Content-Type": "application/json"
     }
     
-    # Adjust payload based on model if necessary, but assuming compatible API for now
-    image_size = "1792x1024"
-    if image_model == "gpt-image-1.5":
+    # Adjust payload based on model
+    # DALL-E 2: max 1024x1024, DALL-E 3: supports 1792x1024
+    if image_model == "dall-e-2":
+        image_size = "1024x1024"
+        print(f"[OpenAI] Using image size: {image_size} for {image_model}")
+    elif image_model == "gpt-image-1.5":
         image_size = "auto"
         print(f"[OpenAI] Using image size: {image_size} for {image_model}")
+    else:
+        # DALL-E 3 and others default to 1792x1024
+        image_size = "1792x1024"
 
     payload = {
         "model": image_model,
