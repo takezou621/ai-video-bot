@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 USE_NANO_BANANA_PRO = os.getenv("USE_NANO_BANANA_PRO", "false").lower() == "true"
-NANO_BANANA_PRO_BIN = os.getenv("NANO_BANANA_PRO_BIN", "nanobanana")
+# Note: nanobanana binary does not exist; only gemini CLI integration is supported
 NANO_BANANA_PRO_STYLE = os.getenv("NANO_BANANA_PRO_STYLE", "cinematic-newsroom")
 NANO_BANANA_PRO_WIDTH = int(os.getenv("NANO_BANANA_PRO_WIDTH", "1792"))
 NANO_BANANA_PRO_HEIGHT = int(os.getenv("NANO_BANANA_PRO_HEIGHT", "1024"))
@@ -27,26 +27,40 @@ def _dummy(prompt, out_path):
     return out_path
 
 
-def generate_image(prompt, out_path: Path, max_retries=3):
-    result = _generate_with_nano_banana_pro(prompt, out_path)
-    if result:
-        return result
+def generate_image(prompt, out_path: Path, max_retries=3, model=None):
+    if USE_NANO_BANANA_PRO:
+        result = _generate_with_nano_banana_pro(prompt, out_path)
+        if result:
+            return result
 
     if not OPENAI_API_KEY:
         return _dummy(prompt, out_path)
+
+    image_model = model or os.getenv("OPENAI_IMAGE_MODEL", "dall-e-3")
+    print(f"[OpenAI] Generating image with model: {image_model}")
 
     url = "https://api.openai.com/v1/images/generations"
     headers = {
         "Authorization": f"Bearer {OPENAI_API_KEY}",
         "Content-Type": "application/json"
     }
+    
+    # Adjust payload based on model if necessary, but assuming compatible API for now
+    image_size = "1792x1024"
+    if image_model == "gpt-image-1.5":
+        image_size = "auto"
+        print(f"[OpenAI] Using image size: {image_size} for {image_model}")
+
     payload = {
-        "model": "dall-e-3",
+        "model": image_model,
         "prompt": f"Cinematic 16:9 landscape image, film photography style: {prompt}",
         "n": 1,
-        "size": "1792x1024",
-        "response_format": "b64_json"
+        "size": image_size
     }
+
+    # 'response_format' might not be supported by gpt-image-1.5 or newer models
+    if image_model != "gpt-image-1.5":
+        payload["response_format"] = "b64_json"
 
     for attempt in range(max_retries):
         try:
@@ -76,59 +90,18 @@ def generate_image(prompt, out_path: Path, max_retries=3):
 
 
 def _generate_with_nano_banana_pro(prompt: str, out_path: Path):
-    """Invoke Nano Banana Pro via Gemini CLI integration."""
+    """Invoke Nano Banana Pro via Gemini CLI integration.
+
+    Note: The 'nanobanana' binary does not exist. This function only attempts
+    to use the 'gemini' CLI with nanobanana extension if available.
+    """
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    abs_out_path = out_path.resolve()
 
-    # 1. Try specific binary first
-    binary_path = shutil.which(NANO_BANANA_PRO_BIN)
-    if binary_path:
-        if not GEMINI_API_KEY:
-            print("[NanoBananaPro] GEMINI_API_KEY not set. Falling back.")
-            return None
-
-        cmd = [
-            binary_path,
-            "--mode", "image",
-            "--prompt", prompt,
-            "--style", NANO_BANANA_PRO_STYLE,
-            "--width", str(NANO_BANANA_PRO_WIDTH),
-            "--height", str(NANO_BANANA_PRO_HEIGHT),
-            "--output", str(out_path),
-            "--gemini-model", NANO_BANANA_GEMINI_MODEL,
-            "--gemini-api-key", GEMINI_API_KEY
-        ]
-
-        try:
-            subprocess.run(
-                cmd,
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=NANO_BANANA_PRO_TIMEOUT,
-                env={
-                    **os.environ,
-                    "GEMINI_API_KEY": GEMINI_API_KEY
-                }
-            )
-            if not out_path.exists():
-                print("[NanoBananaPro] generation succeeded but output file missing.")
-                return None
-            return out_path
-        except subprocess.CalledProcessError as exc:
-            print("[NanoBananaPro] generation failed:", exc.stderr or exc.stdout)
-        except subprocess.TimeoutExpired:
-            print("[NanoBananaPro] generation timed out.")
-        except Exception as exc:
-            print("[NanoBananaPro] unexpected error:", exc)
-    
-    # ... (previous code) ...
-
-    # 2. Fallback to 'gemini' CLI
+    # Try 'gemini' CLI with nanobanana extension
     gemini_path = shutil.which("gemini")
     if gemini_path:
-        print("[NanoBananaPro] 'nanobanana' binary not found, trying via 'gemini' CLI...")
+        print("[NanoBananaPro] Attempting image generation via 'gemini' CLI with nanobanana extension...")
         
         # Ensure nanobanana-output directory exists and list initial files
         nanobanana_output_dir = Path(os.getenv("NANO_BANANA_PRO_OUTPUT_DIR", "nanobanana-output"))
@@ -182,5 +155,5 @@ def _generate_with_nano_banana_pro(prompt: str, out_path: Path):
         except Exception as e:
             print(f"[NanoBananaPro] Gemini CLI invocation failed: {e}")
 
-    print(f"[NanoBananaPro] binary '{NANO_BANANA_PRO_BIN}' not found and Gemini CLI failed/missing. Falling back.")
+    print("[NanoBananaPro] Gemini CLI not found or image generation failed. Falling back to OpenAI API.")
     return None
