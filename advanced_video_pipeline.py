@@ -260,7 +260,7 @@ def generate_single_video(
             output_path=thumbnail_path,
             accent_color_index=video_number % 4,
             topic_badge_text=badge_text,
-            image_prompt=thumbnail_final_prompt,
+            image_prompt=None,  # Use existing background.png instead of generating new image
             emotion=thumbnail_data["emotion"],
             image_model=thumbnail_image_model  # Use environment-specified model
         )

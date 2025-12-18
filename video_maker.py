@@ -15,7 +15,7 @@ FPS = 30
 
 # Subtitle styling
 FONT_SIZE = 52
-SUBTITLE_MARGIN = 120  # Increased to ensure 2-3 lines of text fit with padding
+SUBTITLE_MARGIN = 160  # Increased to ensure 2-3 lines of text fit with padding (prevent bottom cutoff)
 BOX_PADDING = 30
 BOX_OPACITY = 200
 # Male speaker: Blue accent

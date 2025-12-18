@@ -7,6 +7,7 @@ import os
 import json
 import re
 import requests
+from datetime import datetime
 from typing import Dict, Any, List
 from content_templates import ContentTemplates
 from llm_story import get_past_topics
@@ -62,6 +63,9 @@ def generate_dialogue_script_with_claude(
     named_entities = topic_analysis.get("named_entities", [])
     named_entity_labels = [entity.get("label") for entity in named_entities if entity.get("label")]
     entity_hint = "、".join(named_entity_labels[:3]) if named_entity_labels else "注目企業名（NVIDIA, OpenAI など）"
+
+    # Date prefix for title (e.g., "12/19")
+    date_prefix = datetime.now().strftime("%m/%d").lstrip("0").replace("/0", "/")
 
     if not GEMINI_API_KEY:
         print("Gemini API key not found, using fallback story generator")
@@ -244,9 +248,10 @@ JSONのみを出力してください。"""
 - スタイル: 教育的だが堅苦しくない、親しみやすい、エンタメ性も意識
 
 # タイトル・SEO要件（Issue #1 対応）
-- 固有名詞を最初の3単語以内に配置（推奨固有名詞: {entity_hint}）
+- タイトルの先頭には必ず【{date_prefix}】の形式で日付を含める（例:【12/19】）
+- 日付の後に固有名詞を配置（推奨固有名詞: {entity_hint}）
 - 可能であれば数字（例:「3つの理由」「5分で分かる」）を含めてクリックを誘発
-- 感情的なパワーワード（例:「衝撃」「緊急」「革命」）を最低1つ含める
+- ❌ NG: 【衝撃】【緊急】【暴露】などの煽りパワーワードは使用しない
 - 固有名詞と動画内容に整合性を持たせ、ミスリードを避ける
 
 # 冒頭15秒フック（必須要件）
@@ -364,6 +369,9 @@ def generate_metadata_with_claude(
             for d in script.get("dialogues", [])[:5]
         ])
 
+        # Date prefix for title (e.g., "12/19")
+        date_prefix = datetime.now().strftime("%m/%d").lstrip("0").replace("/0", "/")
+
         prompt = f"""あなたはYouTube SEOのエキスパートです。以下の動画から、検索上位表示とクリック率（CTR）を最大化するメタデータを生成してください。
 
 タイトル: {title}
@@ -373,9 +381,10 @@ def generate_metadata_with_claude(
 {dialogues_preview}
 
 # メタデータ生成のポイント
-1. **タイトル**: クリックしたくなる要素（数字、疑問形、意外性）を含める
-   - 例: 「【衝撃】〇〇の真実」「なぜ〇〇は失敗したのか？」「〇〇が教える3つの秘訣」
-   - 固有名詞（推奨: {entity_hint}）をタイトル冒頭に配置すること
+1. **タイトル**: タイトルの先頭には必ず【{date_prefix}】の形式で日付を含める
+   - 例: 「【{date_prefix}】NVIDIA 新発表の全貌」「【{date_prefix}】なぜ〇〇は注目されているのか？」
+   - ❌ NG: 【衝撃】【緊急】【暴露】などの煽りパワーワードは使用しない
+   - 日付の後に固有名詞（推奨: {entity_hint}）を配置すること
 2. **説明文**: 最初の3行で視聴者を引き込む（この3行がスマホで表示される）
    - 動画の価値を明確に
    - タイムスタンプを含める
@@ -388,9 +397,13 @@ def generate_metadata_with_claude(
 - サムネイル+タイトルでCTR 10%以上
 - 視聴者維持率を高める説明文
 
+# ⚠️ 重要: タイトルのルール
+- タイトルは必ず【{date_prefix}】で始めること（例: 【{date_prefix}】NVIDIA 最新動向を徹底解説）
+- 【衝撃】【緊急】【暴露】【速報】【革命】などの煽り表現は絶対に使用禁止
+
 以下のJSON形式で出力してください:
 {{
-  "youtube_title": "SEO最適化されたタイトル（60-70文字、数字や記号で目を引く）",
+  "youtube_title": "【{date_prefix}】（固有名詞）（内容を端的に表すタイトル）",
   "youtube_description": "詳細な説明文（最初の3行で引き込み、タイムスタンプ含む、400-500文字）",
   "tags": ["メインキーワード", "関連キーワード1", "関連キーワード2", ...（15-20個）],
   "category": "Education",
