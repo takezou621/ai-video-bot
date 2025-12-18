@@ -145,7 +145,7 @@ def generate_story(topic: str = None, duration_minutes: int = None, news_article
         # Get past topics to avoid duplicates
         past_topics = get_past_topics(max_count=20)
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={GEMINI_API_KEY}"
 
         prompt = SYSTEM_PROMPT.format(
             duration_minutes=duration_minutes,

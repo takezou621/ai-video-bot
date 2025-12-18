@@ -12,7 +12,7 @@ from content_templates import ContentTemplates
 from llm_story import get_past_topics
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
 
 
 def _call_gemini(prompt: str, max_output_tokens: int = 8192, temperature: float = 0.9) -> str:
@@ -92,6 +92,7 @@ def generate_dialogue_script_with_claude(
         is_ai_news = selected_topic.get("is_english", False)
         source_name = selected_topic.get("source", "海外メディア")
         source_url = selected_topic.get("url", "")
+        benefit = angle or "今日から先回りできる視点"
 
         # Get script structure from template
         script_structure = ContentTemplates.generate_script_structure(

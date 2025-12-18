@@ -15,7 +15,7 @@ from topic_history import (
 )
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")  # Google Search API alternative
 
 # High-priority entities that frequently boost CTR when highlighted in titles
@@ -289,7 +289,8 @@ def select_topic_with_claude(
 
     try:
         # Load past topics for semantic de-duplication
-        history = load_topic_history()
+        history_dict = load_topic_history()
+        history = history_dict.get("topics", [])
         # Extract just the titles/urls to check against
         past_topics_list = [h.get("title", "") for h in history[:30]]
         past_topics_text = "\n".join([f"- {t}" for t in past_topics_list])

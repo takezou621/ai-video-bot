@@ -46,7 +46,7 @@ def transcribe_audio_with_timing(audio_path: str, dialogues: List[Dict]) -> Opti
             audio_file = genai.upload_file(str(wav_path))
 
             # Request transcription with timing
-            model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            model = genai.GenerativeModel('gemini-3-flash-preview')
 
             prompt = """この音声を書き起こし、各発話の正確な開始時刻と終了時刻を秒単位で提供してください。
 

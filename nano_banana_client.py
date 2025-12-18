@@ -14,7 +14,8 @@ NANO_BANANA_PRO_STYLE = os.getenv("NANO_BANANA_PRO_STYLE", "cinematic-newsroom")
 NANO_BANANA_PRO_WIDTH = int(os.getenv("NANO_BANANA_PRO_WIDTH", "1792"))
 NANO_BANANA_PRO_HEIGHT = int(os.getenv("NANO_BANANA_PRO_HEIGHT", "1024"))
 NANO_BANANA_PRO_TIMEOUT = int(os.getenv("NANO_BANANA_PRO_TIMEOUT", "120"))
-NANO_BANANA_GEMINI_MODEL = os.getenv("NANO_BANANA_GEMINI_MODEL", "gemini-2.0-flash")
+# Model settings
+NANO_BANANA_GEMINI_MODEL = os.getenv("NANO_BANANA_GEMINI_MODEL", "gemini-3-flash-preview")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 

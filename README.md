@@ -65,7 +65,7 @@
    - Gemini APIで最適なトピックを選定・分析
 
 2. **✍️ 高品質な台本生成**
-   - Gemini 2.0 Flashでプロレベルの対話台本
+   - Gemini 3.0 Flashでプロレベルの対話台本
    - テンプレート構造に基づく自然な会話
 
 3. **🎙️ 自然な音声合成**
@@ -108,7 +108,7 @@
 
 ```
 1.  Web Search      → トレンドトピック検索・選定 (Serper + Gemini)
-2.  Script Gen      → テンプレート構造で台本生成 (Gemini 2.0 Flash)
+2.  Script Gen      → テンプレート構造で台本生成 (Gemini 3.0 Flash)
 3.  Image Gen       → 背景画像生成 (DALL-E 3)
 4.  Audio Gen       → 音声生成 (Gemini TTS)
 5.  Video Gen       → 高品質動画合成 (FFmpeg + MoviePy) ⭐
@@ -132,14 +132,14 @@ graph TD
     
     subgraph AI_Generation [AI生成パイプライン]
         direction TB
-        Topic["1. トピック選定<br/>🤖 Gemini 2.0 Flash"] --> Script["2. 台本生成<br/>🤖 Gemini 2.0 Flash"]
+        Topic["1. トピック選定<br/>🤖 Gemini 3.0 Flash"] --> Script["2. 台本生成<br/>🤖 Gemini 3.0 Flash"]
         Script --> Assets["3. 素材生成"]
         Assets --> Audio["音声合成<br/>🤖 Gemini 2.5 TTS"]
         Assets --> BG["背景画像<br/>🎨 DALL-E 3"]
         Audio --> Video["4. 動画合成<br/>🗣️ Whisper (STT) + MoviePy"]
         BG --> Video
-        Video --> Thumb["5. サムネイル生成<br/>🤖 Gemini 2.0 (Prompt)<br/>🎨 DALL-E 3 (Image)"]
-        Thumb --> Meta["6. メタデータ生成<br/>(タイトル/概要/タグ/コメント)<br/>🤖 Gemini 2.0 Flash"]
+        Video --> Thumb["5. サムネイル生成<br/>🤖 Gemini 3.0 (Prompt)<br/>🎨 DALL-E 3 (Image)"]
+        Thumb --> Meta["6. メタデータ生成<br/>(タイトル/概要/タグ/コメント)<br/>🤖 Gemini 3.0 Flash"]
     end
 
     Config --> AI_Generation

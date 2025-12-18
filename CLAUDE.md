@@ -16,7 +16,9 @@ The system has been enhanced with high-quality features based on the Zenn articl
 
 1. **Whisper STT Integration** (`whisper_stt.py`): **100% FREE** accurate subtitle synchronization using OpenAI Whisper (local execution, no API costs, 95%+ accuracy)
 2. **ElevenLabs STT Integration** (`elevenlabs_stt.py`): Optional paid alternative for subtitle synchronization (99%+ accuracy)
-3. **Enhanced Gemini Prompts** (`claude_generator.py`): Template-driven content generation with Gemini 2.0 Flash
+3. **Enhanced Gemini Prompts** (`claude_generator.py`): Template-driven content generation with Gemini 3.0 Flash
+...
+3. **Script Generation** (`claude_generator.py`): Gemini 3.0 Flash creates template-driven dialogue
 4. **MoviePy Rendering** (`video_maker_moviepy.py`): Higher quality subtitle rendering with fade effects
 5. **Template System** (`content_templates.py`): 4 script structures, 6 title patterns, 5 character personas
 6. **Pre-upload Validation** (`pre_upload_checks.py`): Automated quality checks before YouTube upload
@@ -107,7 +109,7 @@ The advanced pipeline provides complete automation from topic discovery to YouTu
 
 1. **Web Search** (`web_search.py`): Discovers trending topics via Serper API
 2. **Topic Selection** (`web_search.py`): Gemini analyzes and selects optimal topic
-3. **Script Generation** (`claude_generator.py`): Gemini 2.0 Flash creates template-driven dialogue
+3. **Script Generation** (`claude_generator.py`): Gemini 3.0 Flash creates template-driven dialogue
 4. **Image Generation** (`nano_banana_client.py`): DALL-E 3 or Nano Banana Pro creates Lo-fi anime backgrounds
 5. **Audio Generation** (`tts_generator.py`): Gemini TTS (2.5 Flash/Pro) produces podcast-style audio
 6. **Video Assembly** (`video_maker.py` / `video_maker_moviepy.py`): FFmpeg/MoviePy combines audio + background + subtitles
@@ -312,7 +314,7 @@ Optional:
 **Gemini models** are configured via environment variables:
 
 Content Generation (`claude_generator.py` and `llm_story.py`):
-- Current: `gemini-2.0-flash` (via `GEMINI_MODEL` env var)
+- Current: `gemini-3-flash-preview` (via `GEMINI_MODEL` env var)
 - Fast, cost-efficient, optimized for creative dialogue generation
 - Temperature: 0.9 for creative dialogue, default for analytical tasks
 
