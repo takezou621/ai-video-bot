@@ -126,6 +126,36 @@
 
 本システムでは、**「全自動モード」**と**「半自動モード（確認重視）」**の2つの運用フローをサポートしています。
 
+```mermaid
+graph TD
+    Start[開始] --> Config{設定確認<br/>YOUTUBE_UPLOAD_ENABLED}
+    
+    Config -- true --> AutoMode[全自動モード]
+    Config -- false --> SemiMode[半自動モード]
+    
+    subgraph AutoMode [全自動モード: 寝ている間に完了]
+        RunAuto[advanced_video_pipeline.py 実行] --> GenVideo1[動画生成]
+        GenVideo1 --> GenThumb1[サムネイル生成]
+        GenThumb1 --> GenMeta1[メタデータ生成]
+        GenMeta1 --> Upload1[YouTubeへ自動アップロード]
+        Upload1 --> Notify1[Slack通知]
+    end
+    
+    subgraph SemiMode [半自動モード: 品質重視]
+        RunSemi[advanced_video_pipeline.py 実行] --> GenVideo2[動画生成]
+        GenVideo2 --> GenThumb2[サムネイル生成]
+        GenVideo2 --> GenMeta2[メタデータ生成]
+        GenMeta2 --> Check[成果物確認<br/>outputs/YYYY-MM-DD/...]
+        Check --> Approve{承認?}
+        Approve -- Yes --> ManualUpload[upload_existing_video.py 実行]
+        ManualUpload --> Upload2[YouTubeへアップロード]
+        Approve -- No --> Retry[生成やり直し]
+    end
+    
+    Notify1 --> End[完了]
+    Upload2 --> End
+```
+
 ### 1. 全自動モード（推奨）
 
 寝ている間に動画生成から公開（または非公開アップロード）まで完了させたい場合に最適です。
