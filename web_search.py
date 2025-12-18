@@ -8,6 +8,11 @@ import re
 import requests
 from typing import List, Dict, Any
 from datetime import datetime, timezone
+from topic_history import (
+    load_topic_history,
+    filter_duplicate_topics,
+    clean_old_history
+)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
@@ -169,7 +174,14 @@ def search_latest_ai_news(max_results: int = 15) -> List[Dict[str, Any]]:
 
         results = _annotate_topics_with_entities(results)
         print(f"Found {len(results)} latest AI news topics (US)")
-        return results
+
+        # Filter out duplicate topics based on history
+        history = load_topic_history()
+        history = clean_old_history(history)
+        filtered_results = filter_duplicate_topics(results, history)
+        print(f"After filtering duplicates: {len(filtered_results)} unique topics")
+
+        return filtered_results
 
     except Exception as e:
         print(f"AI News Search failed: {e}")
@@ -248,7 +260,8 @@ def search_trending_topics(
 
 def select_topic_with_claude(
     search_results: List[Dict[str, Any]],
-    target_duration_minutes: int = 10
+    target_duration_minutes: int = 10,
+    topic_category: str = "economics"
 ) -> Dict[str, Any]:
     """
     Use Gemini to select and analyze the best topic from search results
@@ -257,6 +270,7 @@ def select_topic_with_claude(
     Args:
         search_results: List of topics from search
         target_duration_minutes: Target video duration
+        topic_category: Category for context (economics, ai_news, etc.)
 
     Returns:
         Selected topic with analysis
@@ -271,20 +285,34 @@ def select_topic_with_claude(
                 "key_points": ["概要", "背景", "影響"],
                 "named_entities": top.get("named_entities", [])
             }
-        return _fallback_selected_topic()
+        return _fallback_selected_topic(topic_category)
 
     try:
+        # Load past topics for semantic de-duplication
+        history = load_topic_history()
+        # Extract just the titles/urls to check against
+        past_topics_list = [h.get("title", "") for h in history[:30]]
+        past_topics_text = "\n".join([f"- {t}" for t in past_topics_list])
+
         # Format search results for Gemini
         topics_text = "\n\n".join([
             _format_topic_for_prompt(i, t)
             for i, t in enumerate(search_results[:10])
         ])
 
-        prompt = f"""あなたは日本のYouTube視聴者向けに、経済・ビジネストピックを選定するエディターです。
+        prompt = f"""あなたは日本のYouTube視聴者向けに、{topic_category}トピックを選定するエディターです。
 
 以下の最新ニュースから、約{target_duration_minutes}分の対話形式動画に最適なトピックを1つ選び、分析してください。
 
-検索結果:
+# ⚠️ 重複チェック（厳守）
+以下のトピックは過去に動画化済みです。これらと「内容が重複する」ニュースは絶対に選ばないでください。
+ただし、**「同じ企業（例: OpenAI, Apple, Disney）」であっても、「全く新しいニュース」であれば選択して構いません。**
+「ニュースの中身」が新しいかどうかで判断してください。
+
+過去のトピック:
+{past_topics_text}
+
+# 検索結果（ここから選んでください）:
 {topics_text}
 
 以下のJSON形式で出力してください:
@@ -343,7 +371,7 @@ JSONのみを出力してください。"""
                 "key_points": ["概要", "背景", "影響"],
                 "named_entities": fallback.get("named_entities", [])
             }
-        return _fallback_selected_topic()
+        return _fallback_selected_topic(topic_category)
 
 
 def _fallback_topics(category: str) -> List[Dict[str, Any]]:
@@ -441,8 +469,29 @@ def _format_topic_for_prompt(index: int, topic: Dict[str, Any]) -> str:
     )
 
 
-def _fallback_selected_topic() -> Dict[str, Any]:
-    """Fallback selected topic"""
+def _fallback_selected_topic(category: str = "economics") -> Dict[str, Any]:
+    """Fallback selected topic based on category"""
+    
+    if category in ["ai_news", "technology"]:
+        return {
+            "title": "人工知能の歴史と未来予測",
+            "angle": "AIがどのように進化し、これからどこへ向かうのか",
+            "key_points": [
+                "AIの誕生と冬の時代",
+                "ディープラーニングの登場",
+                "生成AIとシンギュラリティ"
+            ],
+            "selected_topic": {
+                "title": "AIの歴史と進化",
+                "snippet": "AI技術の発展の歴史と将来展望についての解説",
+                "url": "",
+                "source": "Fallback",
+                "date": datetime.now().isoformat(),
+            },
+            "named_entities": [{"label": "AI"}, {"label": "Future"}]
+        }
+    
+    # Default Economics fallback
     return {
         "title": "昭和時代の日本経済と暮らし",
         "angle": "高度経済成長期の人々の生活を振り返る",

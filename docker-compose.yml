@@ -4,8 +4,12 @@ services:
     container_name: ai-video-bot
     env_file:
       - .env
+    environment:
+      - TZ=Asia/Tokyo
     volumes:
       - ./outputs:/app/outputs
       - ./assets:/app/assets
+      - ./youtube_token.pickle:/app/youtube_token.pickle
+      - ./youtube_credentials.json:/app/youtube_credentials.json
     working_dir: /app
     command: ["python", "daily_video_job.py"]

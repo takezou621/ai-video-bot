@@ -13,9 +13,10 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 
 # Gemini TTS Model Selection (December 2025 - latest models)
-# flash: faster, cost-efficient for everyday use
-# pro: state-of-the-art quality for complex prompts
 GEMINI_TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
+
+# Audio Speed Factor (1.0 = normal, 1.3 = 30% faster)
+SPEED_FACTOR = 1.3
 
 # Whisper STT (local, free) - prioritized over ElevenLabs
 USE_WHISPER_STT = os.getenv("USE_WHISPER_STT", "true").lower() == "true"
@@ -63,7 +64,11 @@ def generate_dialogue_audio(dialogues: List[Dict], output_path: Path) -> Tuple[P
             audio_bytes, mime_type = _request_gemini_tts(text, voice)
             chunk_path = output_path.parent / f"chunk_{idx}.wav"
             _write_audio_chunk(audio_bytes, mime_type, chunk_path)
-            duration = _get_audio_duration(chunk_path)
+            
+            # Calculate duration accounting for future speedup
+            raw_duration = _get_audio_duration(chunk_path)
+            duration = raw_duration / SPEED_FACTOR
+            
             estimated_timing.append({
                 "speaker": dialogue.get("speaker"),
                 "text": text,
@@ -89,6 +94,7 @@ def generate_dialogue_audio(dialogues: List[Dict], output_path: Path) -> Tuple[P
             "-f", "concat",
             "-safe", "0",
             "-i", str(concat_file),
+            "-filter:a", f"atempo={SPEED_FACTOR}",
             "-c:a", "libmp3lame",
             "-b:a", "192k",
             str(final_path)
@@ -125,7 +131,7 @@ def generate_dialogue_audio(dialogues: List[Dict], output_path: Path) -> Tuple[P
             except Exception as e:
                 print(f"  ElevenLabs STT failed: {e}, using estimation")
 
-        print("  Using estimated timing (pre-TTS durations)")
+        print("  Using estimated timing (pre-TTS durations adjusted for speed)")
         return final_path, estimated_timing
 
     except Exception as e:
@@ -152,8 +158,11 @@ def _fallback_tts(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[
         tts.save(str(temp_path))
         temp_files.append(temp_path)
 
-        # Estimate duration (rough: 8 chars per second for natural Japanese speech)
-        duration = max(1.5, len(d["text"]) / 8.0)
+        # Measure actual duration and adjust for speedup
+        # (gTTS produces slow speech, so we must measure the original and divide)
+        raw_duration = _get_audio_duration(temp_path)
+        duration = raw_duration / SPEED_FACTOR
+        
         timing_data.append({
             "speaker": d["speaker"],  # Preserve original speaker label (男性/女性 or A/B)
             "text": d["text"],
@@ -162,17 +171,21 @@ def _fallback_tts(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[
         })
         current_time += duration
 
-    # Concatenate audio files
+    final_path = output_path.with_suffix(".mp3")
+    
+    # Concatenate audio files with speedup
     if len(temp_files) > 1:
         list_file = output_path.parent / "audio_list.txt"
         with open(list_file, "w") as f:
             for tf in temp_files:
                 f.write(f"file '{tf}'\n")
 
-        final_path = output_path.with_suffix(".mp3")
         subprocess.run([
             "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-            "-i", str(list_file), "-c", "copy", str(final_path)
+            "-i", str(list_file),
+            "-filter:a", f"atempo={SPEED_FACTOR}",
+            "-c:a", "libmp3lame", "-b:a", "192k",
+            str(final_path)
         ], check=True, capture_output=True)
 
         # Cleanup
@@ -180,8 +193,15 @@ def _fallback_tts(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[
             tf.unlink()
         list_file.unlink()
     else:
-        final_path = output_path.with_suffix(".mp3")
-        temp_files[0].rename(final_path)
+        # Process single file with speedup
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-i", str(temp_files[0]),
+            "-filter:a", f"atempo={SPEED_FACTOR}",
+            "-c:a", "libmp3lame", "-b:a", "192k",
+            str(final_path)
+        ], check=True, capture_output=True)
+        temp_files[0].unlink()
 
     return final_path, timing_data
 

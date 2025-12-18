@@ -64,7 +64,42 @@ def authenticate_youtube() -> Optional[any]:
                 print("Starting OAuth 2.0 authentication flow...")
                 flow = InstalledAppFlow.from_client_secrets_file(
                     str(CREDENTIALS_FILE), SCOPES)
-                creds = flow.run_local_server(port=0)
+
+                # Try manual authorization flow for Docker environments
+                try:
+                    print("\n" + "="*60)
+                    print("MANUAL AUTHORIZATION REQUIRED")
+                    print("="*60)
+                    print("\nDocker environment detected. Please follow these steps:")
+                    print("1. The authentication will start on localhost")
+                    print("2. Copy the URL that appears")
+                    print("3. Open it in your browser on your host machine")
+                    print("4. Authorize the application")
+                    print("\nStarting local server (this may show an error in Docker, but should work)...")
+                    creds = flow.run_local_server(
+                        port=8080,
+                        open_browser=False,
+                        authorization_prompt_message='Please visit this URL to authorize: {url}',
+                        success_message='Authorization complete! You can close this window.'
+                    )
+                except Exception as local_e:
+                    print(f"\nLocal server failed: {local_e}")
+                    print("\nAttempting alternative method...")
+
+                    # Fallback: Get authorization URL manually
+                    auth_url, _ = flow.authorization_url(prompt='consent')
+                    print("\n" + "="*60)
+                    print("MANUAL AUTHORIZATION URL")
+                    print("="*60)
+                    print(f"\nPlease open this URL in your browser:\n\n{auth_url}\n")
+                    print("After authorizing, you'll be redirected to a URL starting with")
+                    print("'http://localhost:...' - paste that FULL URL here:")
+                    print("="*60 + "\n")
+
+                    code_url = input("Paste the full redirect URL here: ").strip()
+                    flow.fetch_token(code=code_url.split('code=')[1].split('&')[0])
+                    creds = flow.credentials
+
             except Exception as e:
                 print(f"Error during OAuth flow: {e}")
                 return None
