@@ -132,28 +132,28 @@ graph TD
     
     subgraph AI_Generation [AI生成パイプライン]
         direction TB
-        Topic[1. トピック選定<br/>🤖 Gemini 2.0 Flash] --> Script[2. 台本生成<br/>🤖 Gemini 2.0 Flash]
-        Script --> Assets[3. 素材生成]
-        Assets --> Audio[音声合成<br/>🤖 Gemini 2.5 TTS]
-        Assets --> BG[背景画像<br/>🎨 DALL-E 3]
-        Audio --> Video[4. 動画合成<br/>🗣️ Whisper (STT) + MoviePy]
+        Topic["1. トピック選定<br/>🤖 Gemini 2.0 Flash"] --> Script["2. 台本生成<br/>🤖 Gemini 2.0 Flash"]
+        Script --> Assets["3. 素材生成"]
+        Assets --> Audio["音声合成<br/>🤖 Gemini 2.5 TTS"]
+        Assets --> BG["背景画像<br/>🎨 DALL-E 3"]
+        Audio --> Video["4. 動画合成<br/>🗣️ Whisper (STT) + MoviePy"]
         BG --> Video
-        Video --> Thumb[5. サムネイル生成<br/>🤖 Gemini 2.0 (Prompt)<br/>🎨 DALL-E 3 (Image)]
-        Thumb --> Meta[6. メタデータ生成<br/>(タイトル/概要/タグ/コメント)<br/>🤖 Gemini 2.0 Flash]
+        Video --> Thumb["5. サムネイル生成<br/>🤖 Gemini 2.0 (Prompt)<br/>🎨 DALL-E 3 (Image)"]
+        Thumb --> Meta["6. メタデータ生成<br/>(タイトル/概要/タグ/コメント)<br/>🤖 Gemini 2.0 Flash"]
     end
 
     Config --> AI_Generation
     
     Meta --> CheckMode{モード分岐}
     
-    CheckMode -- 全自動(true) --> AutoUpload[YouTube自動投稿<br/>(API v3)]
-    AutoUpload --> Slack[Slack通知]
+    CheckMode -- 全自動(true) --> AutoUpload["YouTube自動投稿<br/>(API v3)"]
+    AutoUpload --> Slack["Slack通知"]
     
-    CheckMode -- 半自動(false) --> Review[成果物確認<br/>outputs/...]
+    CheckMode -- 半自動(false) --> Review["成果物確認<br/>outputs/..."]
     Review --> Approve{承認?}
-    Approve -- Yes --> ManualUpload[手動コマンド実行<br/>upload_existing_video.py]
-    ManualUpload --> UploadDone[YouTube投稿完了]
-    Approve -- No --> Retry[再生成]
+    Approve -- Yes --> ManualUpload["手動コマンド実行<br/>upload_existing_video.py"]
+    ManualUpload --> UploadDone["YouTube投稿完了"]
+    Approve -- No --> Retry["再生成"]
     
     %% AI Model Styling
     style Topic fill:#e1f5fe,stroke:#01579b,stroke-width:2px
