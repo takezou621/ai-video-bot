@@ -122,6 +122,45 @@
 
 ---
 
+## 🔄 運用フロー: 動画生成から公開まで
+
+本システムでは、**「全自動モード」**と**「半自動モード（確認重視）」**の2つの運用フローをサポートしています。
+
+### 1. 全自動モード（推奨）
+
+寝ている間に動画生成から公開（または非公開アップロード）まで完了させたい場合に最適です。
+
+1. **設定**: `.env` で `YOUTUBE_UPLOAD_ENABLED=true` に設定
+   ```env
+   YOUTUBE_UPLOAD_ENABLED=true
+   YOUTUBE_PRIVACY_STATUS=private  # 推奨: まずは非公開でアップロード
+   ```
+2. **実行**: `advanced_video_pipeline.py` を実行（またはcronで定期実行）
+   ```bash
+   docker compose run --rm ai-video-bot python advanced_video_pipeline.py
+   ```
+3. **完了**: 自動的にYouTubeにアップロードされ、URLがSlackに通知されます
+
+### 2. 半自動モード（確認重視）
+
+生成された動画やサムネイルを目視で確認してからアップロードしたい場合に使用します。
+
+1. **設定**: `.env` で `YOUTUBE_UPLOAD_ENABLED=false` に設定
+2. **生成**: 通常通りパイプラインを実行
+   ```bash
+   docker compose run --rm ai-video-bot python advanced_video_pipeline.py
+   ```
+3. **確認**: `outputs/YYYY-MM-DD/video_XXX/` 内の `video.mp4` と `thumbnail.jpg` を確認
+4. **アップロード**: 確認OKなら、以下のコマンドで個別アップロード
+   ```bash
+   # 生成されたディレクトリを指定してアップロード
+   docker compose run --rm ai-video-bot python upload_existing_video.py --dir outputs/2025-12-18/video_001 --privacy private
+   ```
+
+※ `upload_existing_video.py` は、生成済みのメタデータ（タイトル、概要欄、タグ）を自動的に読み込んでアップロードします。
+
+---
+
 ## 🗂️ ディレクトリ構成
 
 ```
