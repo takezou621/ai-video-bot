@@ -52,7 +52,8 @@ def transcribe_audio_with_whisper(
 
     try:
         print(f"Loading Whisper model '{model_size}' (this may take a moment on first run)...")
-        model = whisper.load_model(model_size)
+        # Force CPU to avoid sm_120 compatibility issues
+        model = whisper.load_model(model_size, device="cpu")
 
         print(f"Transcribing audio with Whisper (100% FREE, no API costs)...")
 

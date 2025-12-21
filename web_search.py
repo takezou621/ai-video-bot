@@ -1,6 +1,7 @@
 """
 Web Search Module - Finds trending topics for video content
 Based on the Zenn blog's news discovery approach
+Now supports local LLM via Ollama for topic selection
 """
 import os
 import json
@@ -13,6 +14,21 @@ from topic_history import (
     filter_duplicate_topics,
     clean_old_history
 )
+
+# RSS Integration
+try:
+    import rss_fetcher
+    USE_RSS_FEED = os.getenv("USE_RSS_FEED", "true").lower() == "true"
+except ImportError:
+    USE_RSS_FEED = False
+
+# Ollama integration
+try:
+    from ollama_client import call_ollama, check_ollama_health
+    USE_OLLAMA = os.getenv("USE_OLLAMA", "true").lower() == "true"
+except ImportError:
+    USE_OLLAMA = False
+    print("[WARNING] ollama_client not found. Ollama integration disabled.")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
@@ -102,8 +118,22 @@ NAMED_ENTITY_LIBRARY = [
 
 
 def _call_gemini(prompt: str, max_output_tokens: int = 2048, temperature: float = 0.4) -> str:
+    """Unified LLM call - tries Ollama first, falls back to Gemini"""
+
+    # Try Ollama first
+    if USE_OLLAMA:
+        try:
+            if check_ollama_health():
+                print(f"[LLM] Using Ollama for topic selection")
+                return call_ollama(prompt, max_output_tokens, temperature)
+            else:
+                print("[LLM] Ollama unavailable, falling back to Gemini")
+        except Exception as e:
+            print(f"[LLM] Ollama failed: {e}, falling back to Gemini")
+
+    # Fallback to Gemini API (original code)
     if not GEMINI_API_KEY:
-        raise RuntimeError("GEMINI_API_KEY is not set")
+        raise RuntimeError("Neither Ollama nor GEMINI_API_KEY is available")
 
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
@@ -134,6 +164,22 @@ def search_latest_ai_news(max_results: int = 15) -> List[Dict[str, Any]]:
     """
     Search specifically for latest English AI news to report in Japan
     """
+    # 1. Try RSS if enabled (Cost-saving measure)
+    if USE_RSS_FEED:
+        try:
+            rss_results = rss_fetcher.fetch_rss_news("ai_news", max_results=max_results)
+            if rss_results:
+                print(f"[Search] Using RSS feed for AI news ({len(rss_results)} items)")
+                annotated = _annotate_topics_with_entities(rss_results)
+                
+                # Filter duplicates
+                history = load_topic_history()
+                history = clean_old_history(history)
+                filtered = filter_duplicate_topics(annotated, history)
+                return filtered
+        except Exception as e:
+            print(f"[Search] RSS fetch failed: {e}")
+
     if not SERPER_API_KEY:
         return _annotate_topics_with_entities(_fallback_topics("technology"))
 
@@ -194,16 +240,18 @@ def search_trending_topics(
     max_results: int = 10
 ) -> List[Dict[str, Any]]:
     """
-    Search for trending topics using Serper API (Google Search)
-
-    Args:
-        topic_category: Category to search (economics, technology, etc.)
-        region: Region code (jp, us, etc.)
-        max_results: Maximum number of results
-
-    Returns:
-        List of trending topics with titles, snippets, and URLs
+    Search for trending topics using Serper API (Google Search) or RSS
     """
+    # 1. Try RSS if enabled (Cost-saving measure)
+    if USE_RSS_FEED:
+        try:
+            rss_results = rss_fetcher.fetch_rss_news(topic_category, max_results=max_results)
+            if rss_results:
+                print(f"[Search] Using RSS feed for {topic_category} ({len(rss_results)} items)")
+                return _annotate_topics_with_entities(rss_results)
+        except Exception as e:
+            print(f"[Search] RSS fetch failed: {e}")
+
     if not SERPER_API_KEY:
         return _annotate_topics_with_entities(_fallback_topics(topic_category))
 

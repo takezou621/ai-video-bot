@@ -19,3 +19,12 @@ openai-whisper>=20231117
 # YouTube Data API v3 integration
 google-auth-oauthlib>=1.0.0
 google-api-python-client>=2.100.0
+
+# Local TTS (Phase 2)
+torch<2.6.0
+TTS>=0.22.0
+mecab-python3>=1.0.9
+unidic-lite>=1.0.8
+
+# RSS Feed Parsing (Phase 4)
+feedparser>=6.0.10

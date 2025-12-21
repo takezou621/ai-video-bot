@@ -1,8 +1,10 @@
-FROM python:3.12-slim
+FROM python:3.10-slim
 ENV PYTHONUNBUFFERED=1
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     fonts-noto-cjk \
+    espeak-ng \
+    libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt .

@@ -200,7 +200,7 @@ def make_podcast_video(
 
             frame.save(frames_dir / f"f_{frame_num:06d}.png", 'PNG')
 
-            if frame_num % (FPS * 5) == 0:
+            if frame_num % (FPS * 1) == 0:
                 pct = (frame_num / total_frames) * 100
                 print(f"  Frame generation: {pct:.0f}%")
 

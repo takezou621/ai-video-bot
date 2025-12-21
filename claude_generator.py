@@ -2,6 +2,7 @@
 Gemini API Integration - Multi-stage content generation
 Based on the Zenn blog's approach using large language models
 Enhanced with template system for consistent, high-quality content
+Now supports local LLM via Ollama as primary option
 """
 import os
 import json
@@ -12,14 +13,37 @@ from typing import Dict, Any, List
 from content_templates import ContentTemplates
 from llm_story import get_past_topics
 
+# Ollama integration
+try:
+    from ollama_client import call_ollama, check_ollama_health
+    USE_OLLAMA = os.getenv("USE_OLLAMA", "true").lower() == "true"
+except ImportError:
+    USE_OLLAMA = False
+    print("[WARNING] ollama_client not found. Ollama integration disabled.")
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
 
 
 def _call_gemini(prompt: str, max_output_tokens: int = 8192, temperature: float = 0.9) -> str:
-    if not GEMINI_API_KEY:
-        raise RuntimeError("GEMINI_API_KEY is not configured")
+    """Unified LLM call - tries Ollama first, falls back to Gemini"""
 
+    # Try Ollama first
+    if USE_OLLAMA:
+        try:
+            if check_ollama_health():
+                print(f"[LLM] Using Ollama (model: {os.getenv('OLLAMA_MODEL', 'llama3.1:8b-instruct-q4_K_M')})")
+                return call_ollama(prompt, max_output_tokens, temperature)
+            else:
+                print("[LLM] Ollama unavailable, falling back to Gemini")
+        except Exception as e:
+            print(f"[LLM] Ollama failed: {e}, falling back to Gemini")
+
+    # Fallback to Gemini API (original code)
+    if not GEMINI_API_KEY:
+        raise RuntimeError("Neither Ollama nor GEMINI_API_KEY is available")
+
+    print(f"[LLM] Using Gemini API (model: {GEMINI_MODEL})")
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
         f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
@@ -308,7 +332,11 @@ JSONのみを出力してください。"""
 
 JSONのみを出力してください。"""
 
-        print("Generating dialogue with Gemini...")
+        # Add explicit JSON instruction for Ollama models
+        if USE_OLLAMA:
+            prompt += "\n\n重要: 必ず有効なJSONのみを出力してください。JSONの前後に説明文やマークダウンを含めないでください。"
+
+        print("Generating dialogue with LLM...")
         content = _call_gemini(prompt, max_output_tokens=8192, temperature=0.9)
 
         # Extract JSON

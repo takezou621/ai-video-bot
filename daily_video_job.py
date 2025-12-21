@@ -7,20 +7,23 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
+BASE = Path(__file__).parent
+if (BASE / ".env").exists():
+    load_dotenv(BASE / ".env", override=True)
+
 from llm_story import generate_story
 from nano_banana_client import generate_image
 from tts_generator import generate_dialogue_audio
 from video_maker import make_podcast_video
 
-BASE = Path(__file__).parent
 OUT = BASE / "outputs"
-
 
 def main():
     """Main entry point for video generation"""
-    if (BASE / ".env").exists():
-        load_dotenv(BASE / ".env")
+import web_search
 
+def main():
+    """Main entry point for video generation"""
     today = str(datetime.date.today())
     outdir = OUT / today
     outdir.mkdir(parents=True, exist_ok=True)
@@ -28,12 +31,39 @@ def main():
     # Get configuration
     duration_minutes = int(os.getenv("DURATION_MINUTES", "2"))
     topic = os.getenv("VIDEO_TOPIC", None)
+    use_web_search = os.getenv("USE_WEB_SEARCH", "false").lower() == "true"
+    topic_category = os.getenv("TOPIC_CATEGORY", "ai_news")
 
     print(f"=== Generating {duration_minutes} minute video ===")
+    
+    news_articles = None
+    
+    # Fetch News if enabled
+    if use_web_search:
+        print(f"\n[0/4] Fetching latest news for category: {topic_category}...")
+        try:
+            if topic_category == "ai_news":
+                search_results = web_search.search_latest_ai_news()
+            else:
+                search_results = web_search.search_trending_topics(topic_category)
+            
+            if search_results:
+                # Select best topic
+                selection = web_search.select_topic_with_claude(search_results, duration_minutes)
+                if selection:
+                    # Update topic and pass articles
+                    if not topic:
+                        topic = selection.get("title", "")
+                    print(f"  Selected Topic: {topic}")
+                    news_articles = [selection.get("selected_topic", {})]
+                    # Also pass top 3 other results for context
+                    news_articles.extend(search_results[:3])
+        except Exception as e:
+            print(f"  News fetch failed: {e}")
 
     # Step 1: Generate dialogue script
     print("\n[1/4] Generating dialogue script...")
-    story = generate_story(topic=topic, duration_minutes=duration_minutes)
+    story = generate_story(topic=topic, duration_minutes=duration_minutes, news_articles=news_articles)
     print(f"  Title: {story['title']}")
     print(f"  Dialogues: {len(story['dialogues'])} exchanges")
 

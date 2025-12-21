@@ -6,6 +6,8 @@ import os
 import json
 import base64
 import requests
+import voicevox_client
+import text_normalizer
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 
@@ -18,6 +20,9 @@ GEMINI_TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
 # Audio Speed Factor (1.0 = normal, 1.3 = 30% faster)
 SPEED_FACTOR = 1.3
 
+# Local TTS (VoiceVox) - prioritized if enabled
+USE_VOICEVOX = os.getenv("USE_VOICEVOX", "true").lower() == "true" and voicevox_client.is_available()
+
 # Whisper STT (local, free) - prioritized over ElevenLabs
 USE_WHISPER_STT = os.getenv("USE_WHISPER_STT", "true").lower() == "true"
 WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")  # tiny, base, small, medium, large
@@ -27,7 +32,11 @@ USE_ELEVENLABS_STT_ENV = os.getenv("USE_ELEVENLABS_STT", "false").lower() == "tr
 USE_ELEVENLABS_STT = USE_ELEVENLABS_STT_ENV and bool(ELEVENLABS_API_KEY)
 
 # Log TTS and subtitle timing strategy
-print(f"[INFO] Using Gemini TTS model: {GEMINI_TTS_MODEL}")
+if USE_VOICEVOX:
+    print(f"[INFO] Using VOICEVOX (local, FREE) for high-quality Japanese speech")
+else:
+    print(f"[INFO] Using Gemini TTS model: {GEMINI_TTS_MODEL}")
+
 if USE_WHISPER_STT:
     print(f"[INFO] Using Whisper STT (local, FREE) for accurate subtitles - model: {WHISPER_MODEL_SIZE}")
 elif USE_ELEVENLABS_STT:
@@ -37,7 +46,7 @@ else:
 
 def generate_dialogue_audio(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[Dict]]:
     """
-    Generate podcast-style dialogue audio using Gemini TTS.
+    Generate podcast-style dialogue audio.
 
     Args:
         dialogues: List of {"speaker": "A/B/男性/女性", "text": "..."}
@@ -48,8 +57,8 @@ def generate_dialogue_audio(dialogues: List[Dict], output_path: Path) -> Tuple[P
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if not GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY is required")
+    if not USE_VOICEVOX and not GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY is required when VoiceVox is disabled")
 
     chunk_paths = []
     estimated_timing = []
@@ -60,10 +69,21 @@ def generate_dialogue_audio(dialogues: List[Dict], output_path: Path) -> Tuple[P
             text = dialogue.get("text", "")
             if not text.strip():
                 continue
-            voice = _determine_voice(dialogue.get("speaker"))
-            audio_bytes, mime_type = _request_gemini_tts(text, voice)
+            
+            # Normalize text for proper reading (English -> Katakana)
+            text = text_normalizer.normalize_text_for_tts(text)
+            
             chunk_path = output_path.parent / f"chunk_{idx}.wav"
-            _write_audio_chunk(audio_bytes, mime_type, chunk_path)
+            
+            if USE_VOICEVOX:
+                # Map speaker for VoiceVox
+                speaker_type = "female" if dialogue.get("speaker") in ["女性", "B", "Female"] else "male"
+                voicevox_client.generate_voice(text, chunk_path, speaker_type=speaker_type)
+            else:
+                # Gemini TTS
+                voice = _determine_voice(dialogue.get("speaker"))
+                audio_bytes, mime_type = _request_gemini_tts(text, voice)
+                _write_audio_chunk(audio_bytes, mime_type, chunk_path)
             
             # Calculate duration accounting for future speedup
             raw_duration = _get_audio_duration(chunk_path)
@@ -150,6 +170,10 @@ def _fallback_tts(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[
     current_time = 0.0
 
     for i, d in enumerate(dialogues):
+        if not d.get("text") or not d["text"].strip():
+            print(f"  [TTS] Skipping empty dialogue segment {i}")
+            continue
+            
         temp_path = output_path.parent / f"temp_{i}.mp3"
 
         # Note: gTTS doesn't support different voices for male/female,
