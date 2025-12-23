@@ -54,6 +54,14 @@ BADGE_LABELS = {
 from pre_upload_checks import run_pre_upload_checks
 from thumb_lint import lint_thumbnail
 
+# Spreadsheet input support
+from sheets_reader import (
+    is_sheets_input_enabled,
+    get_pending_rows,
+    update_row_status,
+    create_script_from_sheet_row
+)
+
 BASE = Path(__file__).parent
 OUT = BASE / "outputs"
 
@@ -62,14 +70,15 @@ def generate_single_video(
     video_number: int = 1,
     topic_category: str = "economics",
     duration_minutes: int = 10,
-    use_web_search: bool = True
+    use_web_search: bool = True,
+    sheet_row_data: dict = None
 ) -> dict:
     """
     Generate a single video with all advanced features including YouTube upload
 
     10-Step Pipeline:
-    1. Web Search: Discover trending topics
-    2. Script Generation: Create dialogue with Gemini
+    1. Web Search: Discover trending topics (or load from spreadsheet)
+    2. Script Generation: Create dialogue with Gemini (or use spreadsheet data)
     3. Image Generation: Generate background image
     4. Audio Generation: Create dialogue audio with TTS
     5. Video Assembly: Combine audio, image, and subtitles
@@ -84,6 +93,7 @@ def generate_single_video(
         topic_category: Category for topic search
         duration_minutes: Target video duration
         use_web_search: Whether to use web search for topics
+        sheet_row_data: Pre-loaded data from spreadsheet (skips Step 1-2)
 
     Returns:
         Dictionary with video information
@@ -98,61 +108,94 @@ def generate_single_video(
     print(f"{'='*60}\n")
 
     try:
-        # Step 1: Discover trending topic (Blog's Prompt A)
-        print("[1/10] 🔍 Searching for trending topics...")
-        if use_web_search:
-            if topic_category == "ai_news":
-                print("  Mode: Latest International AI News")
-                search_results = search_latest_ai_news()
-                # For AI news, we want to summarize multiple articles, not just one
-                topic_analysis = select_topic_with_claude(search_results, duration_minutes, topic_category)
-                # Add all news articles for multi-article summary
-                topic_analysis["all_news_articles"] = search_results
-            else:
-                search_results = search_trending_topics(topic_category)
-                topic_analysis = select_topic_with_claude(search_results, duration_minutes, topic_category)
-        else:
-            # Use fallback topic - avoid duplicates with past topics
-            past_topics = get_past_topics(max_count=20)
+        # Check if using spreadsheet data
+        if sheet_row_data:
+            # Step 1-2: Load from spreadsheet (skip web search and script generation)
+            print("[1-2/10] 📊 Loading from spreadsheet...")
+            print(f"  Row: {sheet_row_data.get('row_index')}")
 
-            # If VIDEO_TOPIC is explicitly set, use it
-            explicit_topic = os.getenv("VIDEO_TOPIC", "")
+            # Create script from sheet data
+            script = create_script_from_sheet_row(sheet_row_data)
+            topic_title = script.get("title", "Unknown Topic")
+            print(f"  Title: {topic_title}")
+            print(f"  Dialogues: {len(script['dialogues'])} exchanges")
 
-            if explicit_topic:
-                topic_title = explicit_topic
-            else:
-                # Generate diverse topic suggestion based on category
-                # Leave title empty to let Gemini generate it with duplicate avoidance
-                topic_title = ""
-                print(f"  Past topics found: {len(past_topics)}")
-                if past_topics:
-                    print(f"  Avoiding duplicates of: {', '.join(past_topics[:3])}...")
-
+            # Create topic_analysis for compatibility
             topic_analysis = {
                 "title": topic_title,
-                "angle": f"{topic_category}に関する興味深い視点",
-                "key_points": ["最新トレンド", "実用的な知識", "視聴者の関心"],
+                "angle": sheet_row_data.get("summary", ""),
+                "key_points": [],
+                "source": "spreadsheet",
+                "sheet_row_index": sheet_row_data.get("row_index")
             }
 
-        topic_title = topic_analysis.get("title", "Unknown Topic")
-        print(f"  Selected: {topic_title}")
+            # Save topic analysis
+            json.dump(topic_analysis, open(outdir / "topic.json", "w", encoding="utf-8"),
+                      ensure_ascii=False, indent=2)
 
-        # Save topic analysis
-        json.dump(topic_analysis, open(outdir / "topic.json", "w", encoding="utf-8"),
-                  ensure_ascii=False, indent=2)
+            # Save script
+            json.dump(script, open(outdir / "script.json", "w", encoding="utf-8"),
+                      ensure_ascii=False, indent=2)
 
-        # Notify start
-        notify_video_start(video_number, topic_title, duration_minutes)
+            # Notify start
+            notify_video_start(video_number, topic_title, duration_minutes)
 
-        # Step 2: Generate dialogue script (Blog's Prompt B)
-        print("\n[2/10] ✍️  Generating dialogue script with Gemini...")
-        script = generate_dialogue_script_with_claude(topic_analysis, duration_minutes)
-        print(f"  Title: {script['title']}")
-        print(f"  Dialogues: {len(script['dialogues'])} exchanges")
+        else:
+            # Step 1: Discover trending topic (Blog's Prompt A)
+            print("[1/10] 🔍 Searching for trending topics...")
+            if use_web_search:
+                if topic_category == "ai_news":
+                    print("  Mode: Latest International AI News")
+                    search_results = search_latest_ai_news()
+                    # For AI news, we want to summarize multiple articles, not just one
+                    topic_analysis = select_topic_with_claude(search_results, duration_minutes, topic_category)
+                    # Add all news articles for multi-article summary
+                    topic_analysis["all_news_articles"] = search_results
+                else:
+                    search_results = search_trending_topics(topic_category)
+                    topic_analysis = select_topic_with_claude(search_results, duration_minutes, topic_category)
+            else:
+                # Use fallback topic - avoid duplicates with past topics
+                past_topics = get_past_topics(max_count=20)
 
-        # Save script
-        json.dump(script, open(outdir / "script.json", "w", encoding="utf-8"),
-                  ensure_ascii=False, indent=2)
+                # If VIDEO_TOPIC is explicitly set, use it
+                explicit_topic = os.getenv("VIDEO_TOPIC", "")
+
+                if explicit_topic:
+                    topic_title = explicit_topic
+                else:
+                    # Generate diverse topic suggestion based on category
+                    # Leave title empty to let Gemini generate it with duplicate avoidance
+                    topic_title = ""
+                    print(f"  Past topics found: {len(past_topics)}")
+                    if past_topics:
+                        print(f"  Avoiding duplicates of: {', '.join(past_topics[:3])}...")
+
+                topic_analysis = {
+                    "title": topic_title,
+                    "angle": f"{topic_category}に関する興味深い視点",
+                    "key_points": ["最新トレンド", "実用的な知識", "視聴者の関心"],
+                }
+
+            topic_title = topic_analysis.get("title", "Unknown Topic")
+            print(f"  Selected: {topic_title}")
+
+            # Save topic analysis
+            json.dump(topic_analysis, open(outdir / "topic.json", "w", encoding="utf-8"),
+                      ensure_ascii=False, indent=2)
+
+            # Notify start
+            notify_video_start(video_number, topic_title, duration_minutes)
+
+            # Step 2: Generate dialogue script (Blog's Prompt B)
+            print("\n[2/10] ✍️  Generating dialogue script with Gemini...")
+            script = generate_dialogue_script_with_claude(topic_analysis, duration_minutes)
+            print(f"  Title: {script['title']}")
+            print(f"  Dialogues: {len(script['dialogues'])} exchanges")
+
+            # Save script
+            json.dump(script, open(outdir / "script.json", "w", encoding="utf-8"),
+                      ensure_ascii=False, indent=2)
 
         # Step 3: Generate background image
         print("\n[3/10] 🎨 Generating background image with optimized prompt...")
@@ -389,6 +432,14 @@ def generate_single_video(
         if youtube_result:
             print(f"   YouTube: {youtube_result['video_url']}")
 
+        # Update spreadsheet status if using sheet data
+        if sheet_row_data and sheet_row_data.get("row_index"):
+            try:
+                update_row_status(sheet_row_data["row_index"], "done")
+                print(f"   Spreadsheet row {sheet_row_data['row_index']} marked as done")
+            except Exception as e:
+                print(f"   Warning: Failed to update spreadsheet status: {e}")
+
         # Cleanup temporary files
         cleanup_video_temp_files(outdir)
 
@@ -498,6 +549,98 @@ def generate_multiple_videos(
     return results
 
 
+def generate_videos_from_sheets(
+    topic_category: str = "economics",
+    duration_minutes: int = 10
+) -> list:
+    """
+    Generate videos from spreadsheet data
+
+    Reads pending rows from the configured spreadsheet and generates
+    a video for each row.
+
+    Args:
+        topic_category: Category for topic (used for metadata)
+        duration_minutes: Target duration per video
+
+    Returns:
+        List of video manifests
+    """
+    print(f"\n{'='*60}")
+    print(f"  Spreadsheet Mode - Processing pending rows")
+    print(f"{'='*60}\n")
+
+    try:
+        pending_rows = get_pending_rows()
+    except Exception as e:
+        print(f"❌ Failed to read spreadsheet: {e}")
+        print("   Falling back to normal mode...")
+        return []
+
+    if not pending_rows:
+        print("No pending rows found in spreadsheet")
+        return []
+
+    print(f"Found {len(pending_rows)} pending row(s)")
+
+    results = []
+    successful = 0
+    failed = 0
+    total_duration = 0
+    topics = []
+
+    for idx, row_data in enumerate(pending_rows, start=1):
+        try:
+            print(f"\n--- Processing row {row_data['row_index']} ({idx}/{len(pending_rows)}) ---")
+
+            manifest = generate_single_video(
+                video_number=idx,
+                topic_category=topic_category,
+                duration_minutes=duration_minutes,
+                use_web_search=False,
+                sheet_row_data=row_data
+            )
+            results.append(manifest)
+            successful += 1
+            total_duration += manifest.get("duration_seconds", 0)
+            topics.append(manifest.get("script", {}).get("title", "Unknown"))
+
+            # Wait between videos to avoid rate limits
+            if idx < len(pending_rows):
+                print(f"\n⏳ Waiting 10 seconds before next video...\n")
+                import time
+                time.sleep(10)
+
+        except Exception as e:
+            print(f"Failed to generate video from row {row_data['row_index']}: {e}")
+            failed += 1
+            results.append({"error": str(e), "row_index": row_data['row_index']})
+
+            # Mark as error in spreadsheet
+            try:
+                update_row_status(row_data['row_index'], "error")
+            except:
+                pass
+
+    # Send daily summary
+    notify_daily_summary(
+        total_videos=len(pending_rows),
+        successful=successful,
+        failed=failed,
+        total_duration_minutes=total_duration / 60,
+        topics=topics
+    )
+
+    print(f"\n{'='*60}")
+    print(f"  Spreadsheet Batch Complete!")
+    print(f"  Successful: {successful}/{len(pending_rows)}")
+    print(f"  Failed: {failed}/{len(pending_rows)}")
+    print(f"  Total Duration: {int(total_duration / 60)} minutes")
+    print(f"{'='*60}\n")
+
+    return results
+
+
 def main():
     """Main entry point"""
     if (BASE / ".env").exists():
@@ -509,6 +652,20 @@ def main():
     topic_category = os.getenv("TOPIC_CATEGORY", "ai_news")
     use_web_search = os.getenv("USE_WEB_SEARCH", "true").lower() == "true"
 
+    # Check if spreadsheet input is enabled
+    if is_sheets_input_enabled():
+        print("📊 Spreadsheet input mode enabled")
+        results = generate_videos_from_sheets(
+            topic_category=topic_category,
+            duration_minutes=duration_minutes
+        )
+        # If no pending rows, fall back to normal mode
+        if not results:
+            print("No videos generated from spreadsheet, falling back to normal mode...")
+        else:
+            return  # Exit after processing spreadsheet
+
+    # Normal mode
     if videos_per_day > 1:
         generate_multiple_videos(
             count=videos_per_day,
