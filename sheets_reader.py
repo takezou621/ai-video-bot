@@ -149,7 +149,7 @@ def get_pending_rows(
         # ヘッダー行をスキップ (1行目)
         pending_rows = []
         for idx, row in enumerate(rows[1:], start=2):  # row_index は2から開始 (1行目はヘッダー)
-            # 列: A=Date, B=Scenario, C=Summary, D=Title, E=Status
+            # 列: A=Date, B=Scenario, C=Summary, D=Title, E=?, F=?, G=Status
             if len(row) < 4:
                 continue  # 必要な列が足りない行はスキップ
 
@@ -157,7 +157,8 @@ def get_pending_rows(
             scenario = row[1].strip() if len(row) > 1 else ""
             summary = row[2].strip() if len(row) > 2 else ""
             youtube_title = row[3].strip() if len(row) > 3 else ""
-            status = row[4].strip().lower() if len(row) > 4 else "pending"
+            # G列 (index 6) をステータスとして取得
+            status = row[6].strip().lower() if len(row) > 6 else "pending"
 
             # 日付フィルタ
             if date_filter and date_val != date_filter:
@@ -220,8 +221,11 @@ def update_row_status(
         service = get_sheets_service()
         sheet = service.spreadsheets()
 
-        # E列のステータスを更新
-        range_name = f"シート1!E{row_index}"
+        # SHEETS_RANGE からシート名を取得 (例: "シート1!A:G" -> "シート1")
+        sheet_name = SHEETS_RANGE.split('!')[0] if '!' in SHEETS_RANGE else "シート1"
+        
+        # G列のステータスを更新
+        range_name = f"{sheet_name}!G{row_index}"
 
         body = {
             'values': [[status]]
