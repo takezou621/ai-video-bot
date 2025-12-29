@@ -62,6 +62,14 @@ from sheets_reader import (
     create_script_from_sheet_row
 )
 
+# Podcast API input support
+from podcast_api import (
+    is_podcast_api_enabled,
+    get_pending_podcasts,
+    update_podcast_status,
+    create_script_from_podcast
+)
+
 BASE = Path(__file__).parent
 OUT = BASE / "outputs"
 
@@ -71,7 +79,8 @@ def generate_single_video(
     topic_category: str = "economics",
     duration_minutes: int = 10,
     use_web_search: bool = True,
-    sheet_row_data: dict = None
+    sheet_row_data: dict = None,
+    podcast_api_data: dict = None
 ) -> dict:
     """
     Generate a single video with all advanced features including YouTube upload
@@ -94,6 +103,7 @@ def generate_single_video(
         duration_minutes: Target video duration
         use_web_search: Whether to use web search for topics
         sheet_row_data: Pre-loaded data from spreadsheet (skips Step 1-2)
+        podcast_api_data: Pre-loaded data from Podcast API (skips Step 1-2)
 
     Returns:
         Dictionary with video information
@@ -127,6 +137,38 @@ def generate_single_video(
                 "key_points": [],
                 "source": "spreadsheet",
                 "sheet_row_index": sheet_row_data.get("row_index")
+            }
+
+            # Save topic analysis
+            json.dump(topic_analysis, open(outdir / "topic.json", "w", encoding="utf-8"),
+                      ensure_ascii=False, indent=2)
+
+            # Save script
+            json.dump(script, open(outdir / "script.json", "w", encoding="utf-8"),
+                      ensure_ascii=False, indent=2)
+
+            # Notify start
+            notify_video_start(video_number, topic_title, duration_minutes)
+
+        elif podcast_api_data:
+            # Step 1-2: Load from Podcast API (skip web search and script generation)
+            print("[1-2/10] 🎙️  Loading from Podcast API...")
+            print(f"  Podcast ID: {podcast_api_data.get('id')}")
+
+            # Create script from API data
+            script = create_script_from_podcast(podcast_api_data)
+            topic_title = script.get("title", "Unknown Topic")
+            print(f"  Title: {topic_title}")
+            print(f"  Dialogues: {len(script['dialogues'])} exchanges")
+            print(f"  Hosts: {script.get('host_names', {}).get('male', 'Unknown')} & {script.get('host_names', {}).get('female', 'Unknown')}")
+
+            # Create topic_analysis for compatibility
+            topic_analysis = {
+                "title": topic_title,
+                "angle": podcast_api_data.get("summary", ""),
+                "key_points": [],
+                "source": "podcast_api",
+                "podcast_id": podcast_api_data.get("id")
             }
 
             # Save topic analysis
@@ -440,6 +482,14 @@ def generate_single_video(
             except Exception as e:
                 print(f"   Warning: Failed to update spreadsheet status: {e}")
 
+        # Update Podcast API status if using API data
+        if podcast_api_data and podcast_api_data.get("id"):
+            try:
+                update_podcast_status(podcast_api_data["id"], "done")
+                print(f"   Podcast API id={podcast_api_data['id']} marked as done")
+            except Exception as e:
+                print(f"   Warning: Failed to update Podcast API status: {e}")
+
         # Cleanup temporary files
         cleanup_video_temp_files(outdir)
 
@@ -641,6 +691,98 @@ def generate_videos_from_sheets(
     return results
 
 
+def generate_videos_from_podcast_api(
+    topic_category: str = "ai_news",
+    duration_minutes: int = 10
+) -> list:
+    """
+    Generate videos from Podcast API data
+
+    Fetches pending podcasts from the API and generates
+    a video for each one.
+
+    Args:
+        topic_category: Category for topic (used for metadata)
+        duration_minutes: Target duration per video
+
+    Returns:
+        List of video manifests
+    """
+    print(f"\n{'='*60}")
+    print(f"  Podcast API Mode - Processing pending podcasts")
+    print(f"{'='*60}\n")
+
+    try:
+        pending_podcasts = get_pending_podcasts()
+    except Exception as e:
+        print(f"❌ Failed to fetch from Podcast API: {e}")
+        print("   Falling back to normal mode...")
+        return []
+
+    if not pending_podcasts:
+        print("No pending podcasts found in API")
+        return []
+
+    print(f"Found {len(pending_podcasts)} pending podcast(s)")
+
+    results = []
+    successful = 0
+    failed = 0
+    total_duration = 0
+    topics = []
+
+    for idx, podcast_data in enumerate(pending_podcasts, start=1):
+        try:
+            print(f"\n--- Processing podcast id={podcast_data['id']} ({idx}/{len(pending_podcasts)}) ---")
+
+            manifest = generate_single_video(
+                video_number=idx,
+                topic_category=topic_category,
+                duration_minutes=duration_minutes,
+                use_web_search=False,
+                podcast_api_data=podcast_data
+            )
+            results.append(manifest)
+            successful += 1
+            total_duration += manifest.get("duration_seconds", 0)
+            topics.append(manifest.get("script", {}).get("title", "Unknown"))
+
+            # Wait between videos to avoid rate limits
+            if idx < len(pending_podcasts):
+                print(f"\n⏳ Waiting 10 seconds before next video...\n")
+                import time
+                time.sleep(10)
+
+        except Exception as e:
+            print(f"Failed to generate video from podcast id={podcast_data['id']}: {e}")
+            failed += 1
+            results.append({"error": str(e), "podcast_id": podcast_data['id']})
+
+            # Mark as error in API
+            try:
+                update_podcast_status(podcast_data['id'], "error")
+            except:
+                pass
+
+    # Send daily summary
+    notify_daily_summary(
+        total_videos=len(pending_podcasts),
+        successful=successful,
+        failed=failed,
+        total_duration_minutes=total_duration / 60,
+        topics=topics
+    )
+
+    print(f"\n{'='*60}")
+    print(f"  Podcast API Batch Complete!")
+    print(f"  Successful: {successful}/{len(pending_podcasts)}")
+    print(f"  Failed: {failed}/{len(pending_podcasts)}")
+    print(f"  Total Duration: {int(total_duration / 60)} minutes")
+    print(f"{'='*60}\n")
+
+    return results
+
+
 def main():
     """Main entry point"""
     if (BASE / ".env").exists():
@@ -652,7 +794,19 @@ def main():
     topic_category = os.getenv("TOPIC_CATEGORY", "ai_news")
     use_web_search = os.getenv("USE_WEB_SEARCH", "true").lower() == "true"
 
-    # Check if spreadsheet input is enabled
+    # Priority 1: Check if Podcast API input is enabled
+    if is_podcast_api_enabled():
+        print("🎙️  Podcast API input mode enabled")
+        results = generate_videos_from_podcast_api(
+            topic_category=topic_category,
+            duration_minutes=duration_minutes
+        )
+        # If pending podcasts found, exit after processing
+        if results:
+            return
+        print("No videos generated from Podcast API, checking other modes...")
+
+    # Priority 2: Check if spreadsheet input is enabled
     if is_sheets_input_enabled():
         print("📊 Spreadsheet input mode enabled")
         results = generate_videos_from_sheets(
@@ -665,7 +819,7 @@ def main():
         else:
             return  # Exit after processing spreadsheet
 
-    # Normal mode
+    # Normal mode (web search or fallback topics)
     if videos_per_day > 1:
         generate_multiple_videos(
             count=videos_per_day,

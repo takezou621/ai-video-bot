@@ -86,6 +86,12 @@ docker compose build
 - `YOUTUBE_POST_COMMENTS`: Post auto-generated engagement comments (true/false, default: false)
 - `YOUTUBE_PLAYLIST_ID`: Optional playlist ID to add videos to
 
+**Podcast API Settings:**
+- `PODCAST_API_ENABLED`: Enable fetching scenarios from external Podcast API (true/false, default: false)
+- `PODCAST_API_URL`: API endpoint URL (default: https://pg-admin.takezou.com/api/podcasts)
+- When enabled, takes priority over Spreadsheet input and AI generation
+- Automatically converts Host A → 男性 (田中太郎), Host B → 女性 (佐藤花子)
+
 **Image Generation Settings:**
 - `USE_NANO_BANANA_PRO`: Use local Nano Banana Pro instead of DALL-E (true/false, default: false)
 - `NANO_BANANA_PRO_BIN`: Path to nanobanana binary (default: nanobanana)
@@ -95,13 +101,19 @@ docker compose build
 
 ## Architecture
 
-### Two Generation Modes
+### Three Generation Modes
 
 1. **Simple Mode** (`daily_video_job.py`): Legacy 4-step pipeline with fixed topics
    - Gemini-based script generation → Image → Audio → Video
 
 2. **Advanced Mode** (`advanced_video_pipeline.py`): Full 11-step production pipeline
    - Web search → Gemini script → Image → Audio → Video → Metadata → Comments → Thumbnail → Pre-flight checks → Tracking → YouTube Upload
+
+3. **Podcast API Mode** (`podcast_api.py`): External API-driven content
+   - Priority: Podcast API > Spreadsheet > AI Generation
+   - Fetches pre-written scenarios and titles from external API
+   - Converts Host A/Host B to fixed host names (田中太郎/佐藤花子)
+   - Skips AI script generation, uses API-provided content directly
 
 ### 11-Step Advanced Pipeline
 
@@ -129,6 +141,7 @@ The advanced pipeline provides complete automation from topic discovery to YouTu
 - `web_search.py`: Serper API integration + Gemini-based topic curation with named entity extraction
 - `tts_generator.py`: Gemini TTS (2.5 Flash/Pro) with Whisper/ElevenLabs STT integration, gTTS fallback
 - `nano_banana_client.py`: DALL-E 3 or Nano Banana Pro (local) image generation wrapper
+- `podcast_api.py`: External Podcast API client - fetches pre-written scenarios, parses Host A/B to speaker format
 
 **Video Processing:**
 - `video_maker.py`: FFmpeg orchestration, subtitle rendering with PIL, frame generation (fast)
