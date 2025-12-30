@@ -367,14 +367,22 @@ def generate_single_video(
             timestamps=metadata.get("timestamps", []),
             script=script,
             timing_data=timing_data,
-            expected_duration_seconds=video_duration
+            expected_duration_seconds=video_duration,
+            background_path=bg_path  # Check for dummy background image
         )
         for check in validation["checks"]:
             status = "PASS" if check.passed else "FAIL"
-            print(f"   [{status}] {check.detail}")
-        if not validation["passed"]:
-            print("⚠️  Pre-upload validation failed (Continuing for testing)...")
-            # raise RuntimeError("Pre-upload validation failed. Resolve the failed checks before uploading.")
+            critical_marker = " ⛔" if hasattr(check, 'is_critical') and check.is_critical and not check.passed else ""
+            print(f"   [{status}] {check.detail}{critical_marker}")
+
+        # Track if we have critical failures that should block YouTube upload
+        block_youtube_upload = validation.get("has_critical_failure", False)
+
+        if block_youtube_upload:
+            print("🚫 CRITICAL: Pre-upload validation has critical failures!")
+            print("   YouTube upload will be BLOCKED to prevent publishing invalid content.")
+        elif not validation["passed"]:
+            print("⚠️  Pre-upload validation failed (non-critical, continuing...)")
 
         # Step 9: Log to tracking system
         print("\n[9/10] 📊 Logging to tracking system...")
@@ -393,7 +401,11 @@ def generate_single_video(
         youtube_result = None
         youtube_upload_enabled = os.getenv("YOUTUBE_UPLOAD_ENABLED", "false").lower() == "true"
 
-        if youtube_upload_enabled:
+        if youtube_upload_enabled and block_youtube_upload:
+            print("\n[10/10] 🚫 YouTube upload BLOCKED due to critical validation failures!")
+            print("   Please fix the issues (e.g., regenerate background image) before uploading.")
+            print("   Video saved locally at:", video_path)
+        elif youtube_upload_enabled:
             print("\n[10/10] 📤 Uploading to YouTube...")
             try:
                 privacy_status = os.getenv("YOUTUBE_PRIVACY_STATUS", "private")

@@ -93,10 +93,13 @@ def fetch_podcast_by_date(target_date: Optional[str] = None) -> Optional[Dict[st
 
 def parse_podcast_scenario(scenario_text: str) -> List[Dict[str, str]]:
     """
-    Host A: xxx / Host B: yyy 形式のシナリオをdialogues配列に変換
+    シナリオをdialogues配列に変換
+    対応形式:
+    - Host A: xxx / Host B: yyy
+    - 名前付きホスト (例: Amano Yui: xxx / Morishita Nana: yyy)
 
     Args:
-        scenario_text: "Host A: こんにちは Host B: はい..." 形式のテキスト
+        scenario_text: シナリオテキスト
 
     Returns:
         [{"speaker": "男性", "text": "こんにちは"}, {"speaker": "女性", "text": "はい..."}]
@@ -106,33 +109,36 @@ def parse_podcast_scenario(scenario_text: str) -> List[Dict[str, str]]:
     if not scenario_text:
         return dialogues
 
-    # パターン: "Host A:" または "Host B:" で始まるセグメントを分割
-    # 括弧内のタイムスタンプなども含まれる可能性がある
-    pattern = r'Host\s+([AB]):\s*'
+    # まずHost A/B形式を試す
+    dialogues = _parse_host_ab_format(scenario_text)
 
-    # テキストを分割
+    # Host A/B形式で見つからなければ、名前付きホスト形式を試す
+    if not dialogues:
+        dialogues = _parse_named_host_format(scenario_text)
+
+    return dialogues
+
+
+def _parse_host_ab_format(scenario_text: str) -> List[Dict[str, str]]:
+    """Host A: / Host B: 形式をパース"""
+    dialogues = []
+
+    pattern = r'Host\s+([AB]):\s*'
     parts = re.split(pattern, scenario_text.strip())
 
-    # 最初の空要素（テキスト開始前の部分）をスキップ
     i = 0
     while i < len(parts) and not parts[i].strip():
         i += 1
-
-    # 最初の非Host部分（日付やセクションヘッダーなど）はスキップ
     while i < len(parts) and parts[i] not in ["A", "B"]:
         i += 1
 
-    # ペアで処理 (speaker_id, text, speaker_id, text, ...)
     while i < len(parts) - 1:
         speaker_id = parts[i].strip()
         text_part = parts[i + 1].strip() if i + 1 < len(parts) else ""
 
-        # テキストからセクションヘッダーなどを除去
-        # 次のHost指定の前までがテキスト
         text_lines = []
         for line in text_part.split('\n'):
             line = line.strip()
-            # セクションヘッダー（数字+ピリオドで始まる行）やタイムスタンプ行はスキップ
             if re.match(r'^\d+\.\s+', line):
                 continue
             if re.match(r'^\(\d+:\d+\)', line):
@@ -147,7 +153,6 @@ def parse_podcast_scenario(scenario_text: str) -> List[Dict[str, str]]:
         text = ' '.join(text_lines).strip()
 
         if speaker_id in ["A", "B"] and text:
-            # Host A → 男性, Host B → 女性 に変換
             speaker = "男性" if speaker_id == "A" else "女性"
             dialogues.append({
                 "speaker": speaker,
@@ -155,6 +160,84 @@ def parse_podcast_scenario(scenario_text: str) -> List[Dict[str, str]]:
             })
 
         i += 2
+
+    return dialogues
+
+
+def _parse_named_host_format(scenario_text: str) -> List[Dict[str, str]]:
+    """
+    名前付きホスト形式をパース
+    例: "Amano Yui: テキスト" や "森下奈々: テキスト"
+    最初に登場したホストを男性、2番目を女性として扱う
+    """
+    dialogues = []
+
+    # 名前: テキスト のパターン（英語名または日本語名）
+    # 名前は2-20文字程度、コロンの後にテキストが続く
+    pattern = r'\n?([A-Za-z][A-Za-z\s]{1,30}|[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]{2,10}):\s*'
+
+    parts = re.split(pattern, scenario_text.strip())
+
+    # ホスト名を収集（出現順）
+    host_names = []
+    host_to_speaker = {}
+
+    i = 0
+    while i < len(parts) - 1:
+        part = parts[i].strip()
+
+        # タイムスタンプや日付などをスキップ
+        if re.match(r'^\(\d+:\d+', part):
+            i += 1
+            continue
+        if re.match(r'^Today\'s date', part):
+            i += 1
+            continue
+        if re.match(r'^\d{4}年', part):
+            i += 1
+            continue
+
+        # 有効なホスト名かチェック
+        if re.match(r'^[A-Za-z][A-Za-z\s]{1,30}$', part) or re.match(r'^[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]{2,10}$', part):
+            host_name = part
+            text_part = parts[i + 1].strip() if i + 1 < len(parts) else ""
+
+            # 新しいホスト名を登録
+            if host_name not in host_to_speaker:
+                if len(host_names) == 0:
+                    host_to_speaker[host_name] = "男性"
+                else:
+                    host_to_speaker[host_name] = "女性"
+                host_names.append(host_name)
+
+            # テキストをクリーンアップ
+            text_lines = []
+            for line in text_part.split('\n'):
+                line = line.strip()
+                if re.match(r'^\(\d+:\d+\)', line):
+                    continue
+                if re.match(r'^\d+\.\s+', line):
+                    continue
+                if re.match(r'^【.*】', line):
+                    continue
+                if re.match(r'^\d{4}年\d+月\d+日', line):
+                    continue
+                if line:
+                    text_lines.append(line)
+
+            text = ' '.join(text_lines).strip()
+            # テキスト先頭のタイムスタンプや日付を除去
+            text = re.sub(r'^[\d年月日\s/:\(\)]+\s*', '', text).strip()
+
+            if text:
+                dialogues.append({
+                    "speaker": host_to_speaker[host_name],
+                    "text": text
+                })
+
+            i += 2
+        else:
+            i += 1
 
     return dialogues
 
