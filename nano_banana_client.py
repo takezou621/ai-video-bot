@@ -56,43 +56,68 @@ def _generate_with_openai(prompt, out_path, max_retries, model):
         "Authorization": f"Bearer {OPENAI_API_KEY}",
         "Content-Type": "application/json"
     }
-    
+
     if image_model == "dall-e-2":
         image_size = "1024x1024"
     else:
         image_size = "1792x1024"
 
-    payload = {
-        "model": image_model,
-        "prompt": f"Cinematic 16:9 landscape image, film photography style: {prompt}",
-        "n": 1,
-        "size": image_size,
-        "response_format": "b64_json"
-    }
+    # Try original prompt first, then fallback to safe prompt
+    prompts_to_try = [
+        f"Cinematic 16:9 landscape image, film photography style: {prompt}",
+        # Fallback safe prompt for content policy violations
+        "Japanese anime style YouTube thumbnail background, bright colorful tech news studio, "
+        "futuristic digital cityscape with neon lights, abstract technology symbols floating, "
+        "vibrant cyan magenta yellow colors, clean modern design, NO text, 16:9 aspect ratio, "
+        "Makoto Shinkai style sky, cheerful hopeful atmosphere"
+    ]
 
-    for attempt in range(max_retries):
-        try:
-            r = requests.post(url, headers=headers, json=payload, timeout=120)
-            data = r.json()
-            if "error" in data:
-                error_msg = data["error"].get("message", "Unknown API error")
-                if "rate_limit" in error_msg.lower():
-                    print(f"Rate limit hit, waiting 65s... (attempt {attempt+1}/{max_retries})")
-                    time.sleep(65)
+    for prompt_idx, current_prompt in enumerate(prompts_to_try):
+        payload = {
+            "model": image_model,
+            "prompt": current_prompt,
+            "n": 1,
+            "size": image_size,
+            "response_format": "b64_json"
+        }
+
+        for attempt in range(max_retries):
+            try:
+                r = requests.post(url, headers=headers, json=payload, timeout=120)
+                data = r.json()
+                if "error" in data:
+                    error_msg = data["error"].get("message", "Unknown API error")
+                    error_code = data["error"].get("code", "")
+
+                    if "rate_limit" in error_msg.lower():
+                        print(f"Rate limit hit, waiting 65s... (attempt {attempt+1}/{max_retries})")
+                        time.sleep(65)
+                        continue
+
+                    # Content policy violation - try safe fallback prompt
+                    if error_code == "content_policy_violation" and prompt_idx == 0:
+                        print(f"[OpenAI] Content policy violation, trying safe fallback prompt...")
+                        break  # Break inner loop to try next prompt
+
+                    print("API Error:", data["error"])
+                    if prompt_idx == len(prompts_to_try) - 1:
+                        return _create_dummy_image(out_path)
+                    break  # Try next prompt
+
+                img_b64 = data["data"][0]["b64_json"]
+                img_bytes = base64.b64decode(img_b64)
+                with open(out_path, "wb") as f:
+                    f.write(img_bytes)
+                if prompt_idx > 0:
+                    print(f"[OpenAI] Generated with safe fallback prompt")
+                return out_path
+            except Exception as e:
+                print("OpenAI error:", e)
+                if attempt < max_retries - 1:
                     continue
-                print("API Error:", data["error"])
-                return _create_dummy_image(out_path)
-            
-            img_b64 = data["data"][0]["b64_json"]
-            img_bytes = base64.b64decode(img_b64)
-            with open(out_path, "wb") as f:
-                f.write(img_bytes)
-            return out_path
-        except Exception as e:
-            print("OpenAI error:", e)
-            if attempt < max_retries - 1:
-                continue
-            return _create_dummy_image(out_path)
+                if prompt_idx == len(prompts_to_try) - 1:
+                    return _create_dummy_image(out_path)
+                break  # Try next prompt
 
     return _create_dummy_image(out_path)
 
