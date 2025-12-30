@@ -5,6 +5,7 @@ Based on the Zenn article's approach using MoviePy
 from pathlib import Path
 from typing import List, Dict
 import os
+import numpy as np
 
 try:
     from moviepy import (
@@ -15,6 +16,12 @@ try:
 except ImportError:
     MOVIEPY_AVAILABLE = False
     print("MoviePy not available, using fallback")
+
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
 
 
 # Video settings
@@ -33,6 +40,76 @@ SPEAKER_A_COLOR = MALE_COLOR
 SPEAKER_B_COLOR = FEMALE_COLOR
 TEXT_COLOR = 'white'
 BG_COLOR = 'rgba(20,20,30,0.85)'
+
+# Bottom gradient settings
+GRADIENT_HEIGHT_RATIO = 0.35  # Bottom 35% of the image
+GRADIENT_OPACITY = 0.7  # Maximum opacity at the bottom
+
+
+def _create_gradient_overlay(width: int, height: int, gradient_ratio: float = 0.4) -> np.ndarray:
+    """
+    Create a gradient overlay image that darkens the bottom portion.
+
+    Args:
+        width: Image width
+        height: Image height
+        gradient_ratio: Ratio of image height to apply gradient (0.4 = bottom 40%)
+
+    Returns:
+        RGBA numpy array with gradient
+    """
+    # Create gradient array
+    gradient_height = int(height * gradient_ratio)
+    gradient_start = height - gradient_height
+
+    # Create RGBA array (transparent at top, black at bottom)
+    overlay = np.zeros((height, width, 4), dtype=np.uint8)
+
+    for y in range(gradient_start, height):
+        # Calculate alpha (0 at gradient_start, max at bottom)
+        progress = (y - gradient_start) / gradient_height
+        # Use ease-in curve for smoother gradient
+        alpha = int(200 * (progress ** 1.5))  # Max alpha 200 (out of 255)
+        overlay[y, :, 3] = alpha  # Set alpha channel
+        # RGB stays 0 (black)
+
+    return overlay
+
+
+def _apply_gradient_to_background(background_path: Path, output_path: Path) -> Path:
+    """
+    Apply a dark gradient to the bottom portion of the background image.
+
+    Args:
+        background_path: Original background image path
+        output_path: Path to save the processed image
+
+    Returns:
+        Path to the processed image
+    """
+    if not PIL_AVAILABLE:
+        return background_path
+
+    try:
+        with Image.open(background_path) as bg:
+            bg = bg.convert('RGBA')
+            width, height = bg.size
+
+            # Create gradient overlay
+            gradient = _create_gradient_overlay(width, height, GRADIENT_HEIGHT_RATIO)
+            gradient_img = Image.fromarray(gradient, 'RGBA')
+
+            # Composite gradient over background
+            result = Image.alpha_composite(bg, gradient_img)
+
+            # Save as RGB (no alpha needed for video)
+            result = result.convert('RGB')
+            result.save(output_path, 'PNG')
+
+            return output_path
+    except Exception as e:
+        print(f"  Warning: Failed to apply gradient: {e}")
+        return background_path
 
 
 def make_podcast_video_moviepy(
@@ -62,12 +139,17 @@ def make_podcast_video_moviepy(
 
     print("Creating video with MoviePy...")
 
+    # Apply gradient to background for better subtitle readability
+    gradient_bg_path = output_path.parent / "background_gradient.png"
+    processed_bg = _apply_gradient_to_background(Path(background_path), gradient_bg_path)
+    print(f"  Applied dark gradient to bottom {int(GRADIENT_HEIGHT_RATIO*100)}% of background")
+
     # Load audio
     audio = AudioFileClip(str(audio_path))
     duration = audio.duration
 
-    # Create background clip
-    background = ImageClip(str(background_path)).with_duration(duration)
+    # Create background clip with gradient
+    background = ImageClip(str(processed_bg)).with_duration(duration)
     background = background.resized((VIDEO_WIDTH, VIDEO_HEIGHT))
 
     # Create subtitle clips
@@ -106,26 +188,31 @@ def make_podcast_video_moviepy(
                 method='caption',
                 text_align='center',
                 stroke_color=color,
-                stroke_width=3
+                stroke_width=2
             )
 
-            # Position with sufficient bottom margin to prevent cut-off
-            # Ensures 2-3 lines of text with stroke fit safely within the frame
-            # Y position is the TOP of the text clip, so we need extra margin
-            # for text height (~100-120px) + stroke width + internal padding
-            # Setting to 400px to ensure complete visibility with safety margin
-            bottom_margin = 400
-            txt_clip = txt_clip.with_position(
-                ('center', VIDEO_HEIGHT - bottom_margin)
-            )
+            # Get the actual height of the text clip
+            txt_height = txt_clip.h if hasattr(txt_clip, 'h') else 150
+
+            # Position text so its BOTTOM edge is at a fixed distance from video bottom
+            # This ensures multi-line text never gets cut off
+            bottom_margin = 80  # Distance from bottom of video to bottom of text
+            y_position = VIDEO_HEIGHT - bottom_margin - txt_height
+
+            # Ensure y_position is within gradient area (bottom 35%)
+            gradient_top = int(VIDEO_HEIGHT * (1 - GRADIENT_HEIGHT_RATIO))
+            if y_position < gradient_top:
+                y_position = gradient_top + 20  # Keep text in darkened area
+
+            txt_clip = txt_clip.with_position(('center', y_position))
             txt_clip = txt_clip.with_start(start)
             txt_clip = txt_clip.with_duration(seg_duration)
 
             # Add fade effects for smoother transitions
             if seg_duration > 0.5:
                 txt_clip = txt_clip.with_effects([
-                    vfx.FadeIn(0.2),
-                    vfx.FadeOut(0.2)
+                    vfx.FadeIn(0.15),
+                    vfx.FadeOut(0.15)
                 ])
 
             subtitle_clips.append(txt_clip)
@@ -140,10 +227,10 @@ def make_podcast_video_moviepy(
                     color=TEXT_COLOR,
                     method='label'
                 )
-                bottom_margin = 400
-                txt_clip = txt_clip.with_position(
-                    ('center', VIDEO_HEIGHT - bottom_margin)
-                )
+                # Use bottom-aligned positioning for fallback too
+                txt_height = txt_clip.h if hasattr(txt_clip, 'h') else 80
+                y_position = VIDEO_HEIGHT - 80 - txt_height
+                txt_clip = txt_clip.with_position(('center', y_position))
                 txt_clip = txt_clip.with_start(start)
                 txt_clip = txt_clip.with_duration(min(seg_duration, 5))
                 subtitle_clips.append(txt_clip)
