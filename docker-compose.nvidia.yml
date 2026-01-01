@@ -1,0 +1,15 @@
+# Docker Compose override for NVIDIA GPU environments
+# Usage: docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up
+
+services:
+  voicevox:
+    image: voicevox/voicevox_engine:nvidia-ubuntu20.04-latest
+    environment:
+      - VV_CPU_NUM_THREADS=4
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

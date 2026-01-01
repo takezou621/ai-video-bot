@@ -25,13 +25,14 @@ from topic_history import add_topic_to_history
 from cleanup import cleanup_video_temp_files
 import shutil
 
-# Import video maker with MoviePy support
+# Import video maker with FFmpeg support (New Step 2 Implementation)
 try:
-    from video_maker_moviepy import make_podcast_video
-    USE_MOVIEPY = os.getenv("USE_MOVIEPY", "true").lower() == "true"
+    from video_maker_ffmpeg import make_podcast_video
+    print("Using FFmpeg video maker (Step 2 optimization)")
 except ImportError:
+    print("FFmpeg maker not found, falling back to legacy")
     from video_maker import make_podcast_video
-    USE_MOVIEPY = False
+
 from nano_banana_client import generate_image
 from notifications import (
     notify_video_start,
@@ -58,6 +59,22 @@ BADGE_LABELS = {
 from pre_upload_checks import run_pre_upload_checks
 from thumb_lint import lint_thumbnail
 
+# Spreadsheet input support
+from sheets_reader import (
+    is_sheets_input_enabled,
+    get_pending_rows,
+    update_row_status,
+    create_script_from_sheet_row
+)
+
+# Podcast API input support
+from podcast_api import (
+    is_podcast_api_enabled,
+    get_pending_podcasts,
+    update_podcast_status,
+    create_script_from_podcast
+)
+
 BASE = Path(__file__).parent
 OUT = BASE / "outputs"
 
@@ -66,14 +83,16 @@ def generate_single_video(
     video_number: int = 1,
     topic_category: str = "economics",
     duration_minutes: int = 10,
-    use_web_search: bool = True
+    use_web_search: bool = True,
+    sheet_row_data: dict = None,
+    podcast_api_data: dict = None
 ) -> dict:
     """
     Generate a single video with all advanced features including YouTube upload
 
     10-Step Pipeline:
-    1. Web Search: Discover trending topics
-    2. Script Generation: Create dialogue with Gemini
+    1. Web Search: Discover trending topics (or load from spreadsheet)
+    2. Script Generation: Create dialogue with Gemini (or use spreadsheet data)
     3. Image Generation: Generate background image
     4. Audio Generation: Create dialogue audio with TTS
     5. Video Assembly: Combine audio, image, and subtitles
@@ -88,6 +107,8 @@ def generate_single_video(
         topic_category: Category for topic search
         duration_minutes: Target video duration
         use_web_search: Whether to use web search for topics
+        sheet_row_data: Pre-loaded data from spreadsheet (skips Step 1-2)
+        podcast_api_data: Pre-loaded data from Podcast API (skips Step 1-2)
 
     Returns:
         Dictionary with video information
@@ -102,61 +123,126 @@ def generate_single_video(
     print(f"{'='*60}\n")
 
     try:
-        # Step 1: Discover trending topic (Blog's Prompt A)
-        print("[1/10] 🔍 Searching for trending topics...")
-        if use_web_search:
-            if topic_category == "ai_news":
-                print("  Mode: Latest International AI News")
-                search_results = search_latest_ai_news()
-                # For AI news, we want to summarize multiple articles, not just one
-                topic_analysis = select_topic_with_claude(search_results, duration_minutes, topic_category)
-                # Add all news articles for multi-article summary
-                topic_analysis["all_news_articles"] = search_results
-            else:
-                search_results = search_trending_topics(topic_category)
-                topic_analysis = select_topic_with_claude(search_results, duration_minutes, topic_category)
-        else:
-            # Use fallback topic - avoid duplicates with past topics
-            past_topics = get_past_topics(max_count=20)
+        # Check if using spreadsheet data
+        if sheet_row_data:
+            # Step 1-2: Load from spreadsheet (skip web search and script generation)
+            print("[1-2/10] 📊 Loading from spreadsheet...")
+            print(f"  Row: {sheet_row_data.get('row_index')}")
 
-            # If VIDEO_TOPIC is explicitly set, use it
-            explicit_topic = os.getenv("VIDEO_TOPIC", "")
+            # Create script from sheet data
+            script = create_script_from_sheet_row(sheet_row_data)
+            topic_title = script.get("title", "Unknown Topic")
+            print(f"  Title: {topic_title}")
+            print(f"  Dialogues: {len(script['dialogues'])} exchanges")
 
-            if explicit_topic:
-                topic_title = explicit_topic
-            else:
-                # Generate diverse topic suggestion based on category
-                # Leave title empty to let Gemini generate it with duplicate avoidance
-                topic_title = ""
-                print(f"  Past topics found: {len(past_topics)}")
-                if past_topics:
-                    print(f"  Avoiding duplicates of: {', '.join(past_topics[:3])}...")
-
+            # Create topic_analysis for compatibility
             topic_analysis = {
                 "title": topic_title,
-                "angle": f"{topic_category}に関する興味深い視点",
-                "key_points": ["最新トレンド", "実用的な知識", "視聴者の関心"],
+                "angle": sheet_row_data.get("summary", ""),
+                "key_points": [],
+                "source": "spreadsheet",
+                "sheet_row_index": sheet_row_data.get("row_index")
             }
 
-        topic_title = topic_analysis.get("title", "Unknown Topic")
-        print(f"  Selected: {topic_title}")
+            # Save topic analysis
+            json.dump(topic_analysis, open(outdir / "topic.json", "w", encoding="utf-8"),
+                      ensure_ascii=False, indent=2)
 
-        # Save topic analysis
-        json.dump(topic_analysis, open(outdir / "topic.json", "w", encoding="utf-8"),
-                  ensure_ascii=False, indent=2)
+            # Save script
+            json.dump(script, open(outdir / "script.json", "w", encoding="utf-8"),
+                      ensure_ascii=False, indent=2)
 
-        # Notify start
-        notify_video_start(video_number, topic_title, duration_minutes)
+            # Notify start
+            notify_video_start(video_number, topic_title, duration_minutes)
 
-        # Step 2: Generate dialogue script (Blog's Prompt B)
-        print("\n[2/10] ✍️  Generating dialogue script with Gemini...")
-        script = generate_dialogue_script_with_claude(topic_analysis, duration_minutes)
-        print(f"  Title: {script['title']}")
-        print(f"  Dialogues: {len(script['dialogues'])} exchanges")
+        elif podcast_api_data:
+            # Step 1-2: Load from Podcast API (skip web search and script generation)
+            print("[1-2/10] 🎙️  Loading from Podcast API...")
+            print(f"  Podcast ID: {podcast_api_data.get('id')}")
 
-        # Save script
-        json.dump(script, open(outdir / "script.json", "w", encoding="utf-8"),
-                  ensure_ascii=False, indent=2)
+            # Create script from API data
+            script = create_script_from_podcast(podcast_api_data)
+            topic_title = script.get("title", "Unknown Topic")
+            print(f"  Title: {topic_title}")
+            print(f"  Dialogues: {len(script['dialogues'])} exchanges")
+            print(f"  Hosts: {script.get('host_names', {}).get('male', 'Unknown')} & {script.get('host_names', {}).get('female', 'Unknown')}")
+
+            # Create topic_analysis for compatibility
+            topic_analysis = {
+                "title": topic_title,
+                "angle": podcast_api_data.get("summary", ""),
+                "key_points": [],
+                "source": "podcast_api",
+                "podcast_id": podcast_api_data.get("id")
+            }
+
+            # Save topic analysis
+            json.dump(topic_analysis, open(outdir / "topic.json", "w", encoding="utf-8"),
+                      ensure_ascii=False, indent=2)
+
+            # Save script
+            json.dump(script, open(outdir / "script.json", "w", encoding="utf-8"),
+                      ensure_ascii=False, indent=2)
+
+            # Notify start
+            notify_video_start(video_number, topic_title, duration_minutes)
+
+        else:
+            # Step 1: Discover trending topic (Blog's Prompt A)
+            print("[1/10] 🔍 Searching for trending topics...")
+            if use_web_search:
+                if topic_category == "ai_news":
+                    print("  Mode: Latest International AI News")
+                    search_results = search_latest_ai_news()
+                    # For AI news, we want to summarize multiple articles, not just one
+                    topic_analysis = select_topic_with_claude(search_results, duration_minutes, topic_category)
+                    # Add all news articles for multi-article summary
+                    topic_analysis["all_news_articles"] = search_results
+                else:
+                    search_results = search_trending_topics(topic_category)
+                    topic_analysis = select_topic_with_claude(search_results, duration_minutes, topic_category)
+            else:
+                # Use fallback topic - avoid duplicates with past topics
+                past_topics = get_past_topics(max_count=20)
+
+                # If VIDEO_TOPIC is explicitly set, use it
+                explicit_topic = os.getenv("VIDEO_TOPIC", "")
+
+                if explicit_topic:
+                    topic_title = explicit_topic
+                else:
+                    # Generate diverse topic suggestion based on category
+                    # Leave title empty to let Gemini generate it with duplicate avoidance
+                    topic_title = ""
+                    print(f"  Past topics found: {len(past_topics)}")
+                    if past_topics:
+                        print(f"  Avoiding duplicates of: {', '.join(past_topics[:3])}...")
+
+                topic_analysis = {
+                    "title": topic_title,
+                    "angle": f"{topic_category}に関する興味深い視点",
+                    "key_points": ["最新トレンド", "実用的な知識", "視聴者の関心"],
+                }
+
+            topic_title = topic_analysis.get("title", "Unknown Topic")
+            print(f"  Selected: {topic_title}")
+
+            # Save topic analysis
+            json.dump(topic_analysis, open(outdir / "topic.json", "w", encoding="utf-8"),
+                      ensure_ascii=False, indent=2)
+
+            # Notify start
+            notify_video_start(video_number, topic_title, duration_minutes)
+
+            # Step 2: Generate dialogue script (Blog's Prompt B)
+            print("\n[2/10] ✍️  Generating dialogue script with Gemini...")
+            script = generate_dialogue_script_with_claude(topic_analysis, duration_minutes)
+            print(f"  Title: {script['title']}")
+            print(f"  Dialogues: {len(script['dialogues'])} exchanges")
+
+            # Save script
+            json.dump(script, open(outdir / "script.json", "w", encoding="utf-8"),
+                      ensure_ascii=False, indent=2)
 
         # Step 3+4: Generate audio and images IN PARALLEL (blog's optimization for 30min/30min goal)
         print("\n[3+4/10] 🎨🎙️  Generating audio and images in parallel...")
@@ -311,11 +397,10 @@ def generate_single_video(
                   ensure_ascii=False, indent=2)
 
         # Step 5: Create video with subtitles
-        print("\n[5/10] 🎬 Creating video with subtitles...")
-        if USE_MOVIEPY:
-            print("  Using MoviePy for high-quality rendering...")
+        print("\n[5/10] 🎬 Creating video with subtitles (FFmpeg)...")
         video_path = outdir / "video.mp4"
-        make_podcast_video(backgrounds, timing_data, audio_file, video_path, use_moviepy=USE_MOVIEPY)
+        # use_moviepy argument is deprecated/ignored in FFmpeg version
+        make_podcast_video(bg_path, timing_data, audio_file, video_path)
 
         # Get video duration
         import subprocess
@@ -436,14 +521,22 @@ def generate_single_video(
             timestamps=metadata.get("timestamps", []),
             script=script,
             timing_data=timing_data,
-            expected_duration_seconds=video_duration
+            expected_duration_seconds=video_duration,
+            background_path=bg_path  # Check for dummy background image
         )
         for check in validation["checks"]:
             status = "PASS" if check.passed else "FAIL"
-            print(f"   [{status}] {check.detail}")
-        if not validation["passed"]:
-            print("⚠️  Pre-upload validation failed (Continuing for testing)...")
-            # raise RuntimeError("Pre-upload validation failed. Resolve the failed checks before uploading.")
+            critical_marker = " ⛔" if hasattr(check, 'is_critical') and check.is_critical and not check.passed else ""
+            print(f"   [{status}] {check.detail}{critical_marker}")
+
+        # Track if we have critical failures that should block YouTube upload
+        block_youtube_upload = validation.get("has_critical_failure", False)
+
+        if block_youtube_upload:
+            print("🚫 CRITICAL: Pre-upload validation has critical failures!")
+            print("   YouTube upload will be BLOCKED to prevent publishing invalid content.")
+        elif not validation["passed"]:
+            print("⚠️  Pre-upload validation failed (non-critical, continuing...)")
 
         # Step 9: Log to tracking system
         print("\n[9/10] 📊 Logging to tracking system...")
@@ -462,7 +555,11 @@ def generate_single_video(
         youtube_result = None
         youtube_upload_enabled = os.getenv("YOUTUBE_UPLOAD_ENABLED", "false").lower() == "true"
 
-        if youtube_upload_enabled:
+        if youtube_upload_enabled and block_youtube_upload:
+            print("\n[10/10] 🚫 YouTube upload BLOCKED due to critical validation failures!")
+            print("   Please fix the issues (e.g., regenerate background image) before uploading.")
+            print("   Video saved locally at:", video_path)
+        elif youtube_upload_enabled:
             print("\n[10/10] 📤 Uploading to YouTube...")
             try:
                 privacy_status = os.getenv("YOUTUBE_PRIVACY_STATUS", "private")
@@ -542,6 +639,22 @@ def generate_single_video(
         print(f"   Duration: {int(video_duration // 60)}:{int(video_duration % 60):02d}")
         if youtube_result:
             print(f"   YouTube: {youtube_result['video_url']}")
+
+        # Update spreadsheet status if using sheet data
+        if sheet_row_data and sheet_row_data.get("row_index"):
+            try:
+                update_row_status(sheet_row_data["row_index"], "done")
+                print(f"   Spreadsheet row {sheet_row_data['row_index']} marked as done")
+            except Exception as e:
+                print(f"   Warning: Failed to update spreadsheet status: {e}")
+
+        # Update Podcast API status if using API data
+        if podcast_api_data and podcast_api_data.get("id"):
+            try:
+                update_podcast_status(podcast_api_data["id"], "done")
+                print(f"   Podcast API id={podcast_api_data['id']} marked as done")
+            except Exception as e:
+                print(f"   Warning: Failed to update Podcast API status: {e}")
 
         # Cleanup temporary files
         cleanup_video_temp_files(outdir)
@@ -652,6 +765,190 @@ def generate_multiple_videos(
     return results
 
 
+def generate_videos_from_sheets(
+    topic_category: str = "economics",
+    duration_minutes: int = 10
+) -> list:
+    """
+    Generate videos from spreadsheet data
+
+    Reads pending rows from the configured spreadsheet and generates
+    a video for each row.
+
+    Args:
+        topic_category: Category for topic (used for metadata)
+        duration_minutes: Target duration per video
+
+    Returns:
+        List of video manifests
+    """
+    print(f"\n{'='*60}")
+    print(f"  Spreadsheet Mode - Processing pending rows")
+    print(f"{'='*60}\n")
+
+    try:
+        pending_rows = get_pending_rows()
+    except Exception as e:
+        print(f"❌ Failed to read spreadsheet: {e}")
+        print("   Falling back to normal mode...")
+        return []
+
+    if not pending_rows:
+        print("No pending rows found in spreadsheet")
+        return []
+
+    print(f"Found {len(pending_rows)} pending row(s)")
+
+    results = []
+    successful = 0
+    failed = 0
+    total_duration = 0
+    topics = []
+
+    for idx, row_data in enumerate(pending_rows, start=1):
+        try:
+            print(f"\n--- Processing row {row_data['row_index']} ({idx}/{len(pending_rows)}) ---")
+
+            manifest = generate_single_video(
+                video_number=idx,
+                topic_category=topic_category,
+                duration_minutes=duration_minutes,
+                use_web_search=False,
+                sheet_row_data=row_data
+            )
+            results.append(manifest)
+            successful += 1
+            total_duration += manifest.get("duration_seconds", 0)
+            topics.append(manifest.get("script", {}).get("title", "Unknown"))
+
+            # Wait between videos to avoid rate limits
+            if idx < len(pending_rows):
+                print(f"\n⏳ Waiting 10 seconds before next video...\n")
+                import time
+                time.sleep(10)
+
+        except Exception as e:
+            print(f"Failed to generate video from row {row_data['row_index']}: {e}")
+            failed += 1
+            results.append({"error": str(e), "row_index": row_data['row_index']})
+
+            # Mark as error in spreadsheet
+            try:
+                update_row_status(row_data['row_index'], "error")
+            except:
+                pass
+
+    # Send daily summary
+    notify_daily_summary(
+        total_videos=len(pending_rows),
+        successful=successful,
+        failed=failed,
+        total_duration_minutes=total_duration / 60,
+        topics=topics
+    )
+
+    print(f"\n{'='*60}")
+    print(f"  Spreadsheet Batch Complete!")
+    print(f"  Successful: {successful}/{len(pending_rows)}")
+    print(f"  Failed: {failed}/{len(pending_rows)}")
+    print(f"  Total Duration: {int(total_duration / 60)} minutes")
+    print(f"{'='*60}\n")
+
+    return results
+
+
+def generate_videos_from_podcast_api(
+    topic_category: str = "ai_news",
+    duration_minutes: int = 10
+) -> list:
+    """
+    Generate videos from Podcast API data
+
+    Fetches pending podcasts from the API and generates
+    a video for each one.
+
+    Args:
+        topic_category: Category for topic (used for metadata)
+        duration_minutes: Target duration per video
+
+    Returns:
+        List of video manifests
+    """
+    print(f"\n{'='*60}")
+    print(f"  Podcast API Mode - Processing pending podcasts")
+    print(f"{'='*60}\n")
+
+    try:
+        pending_podcasts = get_pending_podcasts()
+    except Exception as e:
+        print(f"❌ Failed to fetch from Podcast API: {e}")
+        print("   Falling back to normal mode...")
+        return []
+
+    if not pending_podcasts:
+        print("No pending podcasts found in API")
+        return []
+
+    print(f"Found {len(pending_podcasts)} pending podcast(s)")
+
+    results = []
+    successful = 0
+    failed = 0
+    total_duration = 0
+    topics = []
+
+    for idx, podcast_data in enumerate(pending_podcasts, start=1):
+        try:
+            print(f"\n--- Processing podcast id={podcast_data['id']} ({idx}/{len(pending_podcasts)}) ---")
+
+            manifest = generate_single_video(
+                video_number=idx,
+                topic_category=topic_category,
+                duration_minutes=duration_minutes,
+                use_web_search=False,
+                podcast_api_data=podcast_data
+            )
+            results.append(manifest)
+            successful += 1
+            total_duration += manifest.get("duration_seconds", 0)
+            topics.append(manifest.get("script", {}).get("title", "Unknown"))
+
+            # Wait between videos to avoid rate limits
+            if idx < len(pending_podcasts):
+                print(f"\n⏳ Waiting 10 seconds before next video...\n")
+                import time
+                time.sleep(10)
+
+        except Exception as e:
+            print(f"Failed to generate video from podcast id={podcast_data['id']}: {e}")
+            failed += 1
+            results.append({"error": str(e), "podcast_id": podcast_data['id']})
+
+            # Mark as error in API
+            try:
+                update_podcast_status(podcast_data['id'], "error")
+            except:
+                pass
+
+    # Send daily summary
+    notify_daily_summary(
+        total_videos=len(pending_podcasts),
+        successful=successful,
+        failed=failed,
+        total_duration_minutes=total_duration / 60,
+        topics=topics
+    )
+
+    print(f"\n{'='*60}")
+    print(f"  Podcast API Batch Complete!")
+    print(f"  Successful: {successful}/{len(pending_podcasts)}")
+    print(f"  Failed: {failed}/{len(pending_podcasts)}")
+    print(f"  Total Duration: {int(total_duration / 60)} minutes")
+    print(f"{'='*60}\n")
+
+    return results
+
+
 def main():
     """Main entry point"""
     if (BASE / ".env").exists():
@@ -663,6 +960,32 @@ def main():
     topic_category = os.getenv("TOPIC_CATEGORY", "ai_news")
     use_web_search = os.getenv("USE_WEB_SEARCH", "true").lower() == "true"
 
+    # Priority 1: Check if Podcast API input is enabled
+    if is_podcast_api_enabled():
+        print("🎙️  Podcast API input mode enabled")
+        results = generate_videos_from_podcast_api(
+            topic_category=topic_category,
+            duration_minutes=duration_minutes
+        )
+        # If pending podcasts found, exit after processing
+        if results:
+            return
+        print("No videos generated from Podcast API, checking other modes...")
+
+    # Priority 2: Check if spreadsheet input is enabled
+    if is_sheets_input_enabled():
+        print("📊 Spreadsheet input mode enabled")
+        results = generate_videos_from_sheets(
+            topic_category=topic_category,
+            duration_minutes=duration_minutes
+        )
+        # If no pending rows, fall back to normal mode
+        if not results:
+            print("No videos generated from spreadsheet, falling back to normal mode...")
+        else:
+            return  # Exit after processing spreadsheet
+
+    # Normal mode (web search or fallback topics)
     if videos_per_day > 1:
         generate_multiple_videos(
             count=videos_per_day,

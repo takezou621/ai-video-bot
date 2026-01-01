@@ -1,0 +1,29 @@
+# Core dependencies
+requests
+gTTS
+python-dotenv
+Pillow
+
+# Anthropic SDK (used for Claude API)
+anthropic>=0.18.0
+
+# High-quality video rendering
+moviepy>=1.0.3
+
+# For accurate subtitle timing (100% FREE)
+openai-whisper>=20231117
+# Note: Whisper also requires ffmpeg (already used for video processing)
+
+# YouTube Data API v3 integration
+google-auth-oauthlib>=1.0.0
+google-api-python-client>=2.100.0
+
+# RSS Feed Parsing
+feedparser>=6.0.10
+
+# Text normalization for TTS
+alkana
+pykakasi
+
+# Note: Local TTS (TTS, torch, mecab-python3) are excluded for CPU-only mode
+# The system uses Gemini TTS (cloud-based) as primary TTS

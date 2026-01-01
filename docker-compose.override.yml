@@ -1,0 +1,15 @@
+# CPU-only override for macOS (no NVIDIA GPU)
+services:
+  ai-video-bot:
+    deploy: {}
+    depends_on: []
+
+  ollama:
+    deploy: {}
+
+  voicevox:
+    image: voicevox/voicevox_engine:cpu-ubuntu20.04-latest
+    deploy: {}
+
+  stable-diffusion:
+    deploy: {}

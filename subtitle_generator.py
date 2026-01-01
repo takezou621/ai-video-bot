@@ -1,220 +1,111 @@
 """
-Subtitle Generator - Creates subtitle frames for video
+Subtitle Generator - Creates ASS subtitles for FFmpeg rendering
+Replaces image-based frame generation with high-performance ASS subtitles.
 """
 from pathlib import Path
-from typing import List, Dict, Tuple
-from PIL import Image, ImageDraw, ImageFont
-import subprocess
-import os
+from typing import List, Dict
+import datetime
 
-# Video dimensions (16:9)
+# Video settings
 VIDEO_WIDTH = 1920
 VIDEO_HEIGHT = 1080
 
-# Subtitle styling
-SUBTITLE_FONT_SIZE = 48
-SUBTITLE_PADDING = 40
-SUBTITLE_BG_COLOR = (0, 0, 0, 180)  # Semi-transparent black
-SUBTITLE_TEXT_COLOR = (255, 255, 255)
-SPEAKER_A_COLOR = (100, 200, 255)  # Light blue
-SPEAKER_B_COLOR = (255, 180, 100)  # Light orange
+# Subtitle styling matches video_maker_moviepy.py
+FONT_SIZE = 52
+MAIN_COLOR = '&HFFC878'  # #78C8FF (BGR format for ASS)
+SUB_COLOR = '&HB496FF'   # #FF96B4 (BGR format for ASS)
+TEXT_COLOR = '&HFFFFFF'  # White
+OUTLINE_COLOR = '&H000000' # Black
+BG_COLOR = '&H14141E'    # Dark blue background (approximate)
 
+# Fixed position from MoviePy config
+# SUBTITLE_Y_POSITION = 680
+# In ASS, alignment 2 (bottom center) uses vertical margin
+# 1080 - 680 (top) - 120 (height/2 roughly) = ~340 margin from bottom
+# Adjusting to match visual appearance:
+VERTICAL_MARGIN = 280 
 
-def get_font(size: int) -> ImageFont.FreeTypeFont:
-    """Get a font that supports Japanese characters"""
-    font_paths = [
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
-        "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
-        "/System/Library/Fonts/Hiragino Sans GB.ttc",
-        "C:\\Windows\\Fonts\\msgothic.ttc",
-    ]
+def _time_to_ass_format(seconds: float) -> str:
+    """Convert seconds to ASS time format H:MM:SS.cs"""
+    td = datetime.timedelta(seconds=seconds)
+    # timedelta string is H:MM:SS.micros
+    # We need H:MM:SS.cs (centiseconds)
+    total_seconds = int(seconds)
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    secs = total_seconds % 60
+    centisecs = int((seconds - total_seconds) * 100)
+    
+    return f"{hours}:{minutes:02d}:{secs:02d}.{centisecs:02d}"
 
-    for font_path in font_paths:
-        if os.path.exists(font_path):
-            try:
-                return ImageFont.truetype(font_path, size)
-            except:
-                continue
-
-    # Fallback to default font
-    try:
-        return ImageFont.truetype("DejaVuSans.ttf", size)
-    except:
-        return ImageFont.load_default()
-
-
-def wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> List[str]:
-    """Wrap text to fit within max_width"""
-    lines = []
-    current_line = ""
-
-    for char in text:
-        test_line = current_line + char
-        bbox = font.getbbox(test_line)
-        if bbox[2] - bbox[0] <= max_width:
-            current_line = test_line
-        else:
-            if current_line:
-                lines.append(current_line)
-            current_line = char
-
-    if current_line:
-        lines.append(current_line)
-
-    return lines
-
-
-def create_subtitle_frame(
-    background: Image.Image,
-    speaker: str,
-    text: str,
-    font: ImageFont.FreeTypeFont
-) -> Image.Image:
-    """Create a single frame with subtitle overlay"""
-    frame = background.copy()
-    draw = ImageDraw.Draw(frame, 'RGBA')
-
-    # Calculate subtitle area
-    max_text_width = VIDEO_WIDTH - (SUBTITLE_PADDING * 4)
-    lines = wrap_text(text, font, max_text_width)
-
-    # Calculate total height needed
-    line_height = font.size + 10
-    total_text_height = len(lines) * line_height
-    box_height = total_text_height + SUBTITLE_PADDING * 2
-
-    # Draw subtitle background box at bottom
-    box_y = VIDEO_HEIGHT - box_height - 50
-    draw.rectangle(
-        [(SUBTITLE_PADDING, box_y),
-         (VIDEO_WIDTH - SUBTITLE_PADDING, box_y + box_height)],
-        fill=SUBTITLE_BG_COLOR
-    )
-
-    # Draw speaker indicator
-    speaker_color = SPEAKER_A_COLOR if speaker == "A" else SPEAKER_B_COLOR
-    speaker_text = "▶ " if speaker == "A" else "◀ "
-    draw.text(
-        (SUBTITLE_PADDING * 2, box_y + SUBTITLE_PADDING // 2),
-        speaker_text,
-        font=font,
-        fill=speaker_color
-    )
-
-    # Draw text lines
-    y = box_y + SUBTITLE_PADDING
-    for line in lines:
-        # Center the text
-        bbox = font.getbbox(line)
-        text_width = bbox[2] - bbox[0]
-        x = (VIDEO_WIDTH - text_width) // 2
-        draw.text((x, y), line, font=font, fill=SUBTITLE_TEXT_COLOR)
-        y += line_height
-
-    return frame
-
-
-def generate_subtitle_video(
-    background_path: Path,
+def generate_ass_subtitles(
     timing_data: List[Dict],
-    output_path: Path,
-    fps: int = 30
+    output_path: Path
 ) -> Path:
     """
-    Generate video with animated subtitles.
-
+    Generate .ass subtitle file from timing data.
+    
     Args:
-        background_path: Path to background image
         timing_data: List of {"speaker", "text", "start", "end"}
-        output_path: Output video path
-        fps: Frames per second
-
+        output_path: Path to save .ass file
+        
     Returns:
-        Path to generated video
+        Path to generated file
     """
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    header = f"""[Script Info]
+; Script generated by AI Video Bot
+ScriptType: v4.00+
+PlayResX: {VIDEO_WIDTH}
+PlayResY: {VIDEO_HEIGHT}
+WrapStyle: 0
+ScaledBorderAndShadow: yes
 
-    # Load and resize background
-    background = Image.open(background_path).convert('RGBA')
-    background = background.resize((VIDEO_WIDTH, VIDEO_HEIGHT), Image.Resampling.LANCZOS)
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+; Main Speaker Style (Blue accent)
+Style: MainSpeaker,Noto Sans CJK JP,52,&HFFFFFF,&H000000,{MAIN_COLOR},&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,100,100,{VERTICAL_MARGIN},1
+; Sub Speaker Style (Pink accent)
+Style: SubSpeaker,Noto Sans CJK JP,52,&HFFFFFF,&H000000,{SUB_COLOR},&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,100,100,{VERTICAL_MARGIN},1
 
-    font = get_font(SUBTITLE_FONT_SIZE)
-
-    # Calculate total duration
-    total_duration = max(t["end"] for t in timing_data) if timing_data else 10
-    total_frames = int(total_duration * fps)
-
-    # Create frames directory
-    frames_dir = output_path.parent / "frames"
-    frames_dir.mkdir(exist_ok=True)
-
-    print(f"Generating {total_frames} frames...")
-
-    # Generate frames
-    current_subtitle_idx = 0
-    for frame_num in range(total_frames):
-        current_time = frame_num / fps
-
-        # Find current subtitle
-        current_subtitle = None
-        for t in timing_data:
-            if t["start"] <= current_time < t["end"]:
-                current_subtitle = t
-                break
-
-        if current_subtitle:
-            frame = create_subtitle_frame(
-                background,
-                current_subtitle["speaker"],
-                current_subtitle["text"],
-                font
-            )
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    
+    events = []
+    
+    for segment in timing_data:
+        start_time = _time_to_ass_format(segment["start"])
+        end_time = _time_to_ass_format(segment["end"])
+        
+        speaker = segment.get("speaker", "男性")
+        text = segment.get("text", "").replace("\n", "\\N")
+        
+        # Determine style based on speaker role
+        # Main: 男性, A, Main
+        # Sub: 女性, B, Sub
+        if speaker in ["女性", "B", "Female", "Sub"]:
+            style = "SubSpeaker"
         else:
-            frame = background.copy()
-
-        # Save frame
-        frame_path = frames_dir / f"frame_{frame_num:06d}.png"
-        frame.convert('RGB').save(frame_path, 'PNG')
-
-        # Progress indicator
-        if frame_num % (fps * 10) == 0:
-            print(f"  Progress: {frame_num}/{total_frames} frames")
-
-    # Combine frames into video using ffmpeg
-    print("Combining frames into video...")
-    video_path = output_path.with_suffix('.mp4')
-
-    subprocess.run([
-        "ffmpeg", "-y",
-        "-framerate", str(fps),
-        "-i", str(frames_dir / "frame_%06d.png"),
-        "-c:v", "libx264",
-        "-pix_fmt", "yuv420p",
-        "-crf", "23",
-        str(video_path)
-    ], check=True, capture_output=True)
-
-    # Cleanup frames
-    print("Cleaning up frames...")
-    for f in frames_dir.glob("*.png"):
-        f.unlink()
-    frames_dir.rmdir()
-
-    return video_path
-
-
-def add_audio_to_video(video_path: Path, audio_path: Path, output_path: Path) -> Path:
-    """Combine video with audio"""
-    subprocess.run([
-        "ffmpeg", "-y",
-        "-i", str(video_path),
-        "-i", str(audio_path),
-        "-c:v", "copy",
-        "-c:a", "aac",
-        "-shortest",
-        str(output_path)
-    ], check=True, capture_output=True)
-
+            style = "MainSpeaker"
+            
+        # Create event line
+        # Use \N for manual line breaks if text is long (handled by text_normalizer mostly)
+        events.append(f"Dialogue: 0,{start_time},{end_time},{style},{speaker},0,0,0,,{text}")
+        
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(header)
+        f.write("\n".join(events))
+        
     return output_path
+
+if __name__ == "__main__":
+    # Test
+    test_data = [
+        {"speaker": "男性", "text": "こんにちは、メインのナレーターです。", "start": 1.5, "end": 4.0},
+        {"speaker": "女性", "text": "そして私がサブのナレーターです。", "start": 4.5, "end": 7.0},
+        {"speaker": "Main", "text": "長い文章のテストです。字幕が適切に表示されるか確認します。", "start": 7.5, "end": 12.0}
+    ]
+    test_out = Path("test_subtitles.ass")
+    generate_ass_subtitles(test_data, test_out)
+    print(f"Generated {test_out}")

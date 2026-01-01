@@ -86,6 +86,12 @@ docker compose build
 - `YOUTUBE_POST_COMMENTS`: Post auto-generated engagement comments (true/false, default: false)
 - `YOUTUBE_PLAYLIST_ID`: Optional playlist ID to add videos to
 
+**Podcast API Settings:**
+- `PODCAST_API_ENABLED`: Enable fetching scenarios from external Podcast API (true/false, default: false)
+- `PODCAST_API_URL`: API endpoint URL (default: https://pg-admin.takezou.com/api/podcasts)
+- When enabled, takes priority over Spreadsheet input and AI generation
+- Automatically converts Host A → 男性 (田中太郎), Host B → 女性 (佐藤花子)
+
 **Image Generation Settings:**
 - `USE_NANO_BANANA_PRO`: Use local Nano Banana Pro instead of DALL-E (true/false, default: false)
 - `NANO_BANANA_PRO_BIN`: Path to nanobanana binary (default: nanobanana)
@@ -95,13 +101,19 @@ docker compose build
 
 ## Architecture
 
-### Two Generation Modes
+### Three Generation Modes
 
 1. **Simple Mode** (`daily_video_job.py`): Legacy 4-step pipeline with fixed topics
    - Gemini-based script generation → Image → Audio → Video
 
 2. **Advanced Mode** (`advanced_video_pipeline.py`): Full 11-step production pipeline
    - Web search → Gemini script → Image → Audio → Video → Metadata → Comments → Thumbnail → Pre-flight checks → Tracking → YouTube Upload
+
+3. **Podcast API Mode** (`podcast_api.py`): External API-driven content
+   - Priority: Podcast API > Spreadsheet > AI Generation
+   - Fetches pre-written scenarios and titles from external API
+   - Converts Host A/Host B to fixed host names (田中太郎/佐藤花子)
+   - Skips AI script generation, uses API-provided content directly
 
 ### 11-Step Advanced Pipeline
 
@@ -129,6 +141,7 @@ The advanced pipeline provides complete automation from topic discovery to YouTu
 - `web_search.py`: Serper API integration + Gemini-based topic curation with named entity extraction
 - `tts_generator.py`: Gemini TTS (2.5 Flash/Pro) with Whisper/ElevenLabs STT integration, gTTS fallback
 - `nano_banana_client.py`: DALL-E 3 or Nano Banana Pro (local) image generation wrapper
+- `podcast_api.py`: External Podcast API client - fetches pre-written scenarios, parses Host A/B to speaker format
 
 **Video Processing:**
 - `video_maker.py`: FFmpeg orchestration, subtitle rendering with PIL, frame generation (fast)
@@ -217,15 +230,44 @@ The system automatically falls back through tiers if earlier options are unavail
 
 ## Video Rendering Details
 
-`video_maker.py` creates podcast-style videos:
+`video_maker_moviepy.py` creates podcast-style videos with MoviePy:
 
 - **Resolution**: 1920x1080 @ 30fps
-- **Subtitle Style**: Semi-transparent boxes with speaker color indicators
-  - Speaker A: Blue accent (120, 200, 255)
-  - Speaker B: Orange accent (255, 200, 120)
-- **Font Handling**: Searches for Japanese fonts across platforms (Noto CJK, Hiragino, MS Gothic)
-- **Text Wrapping**: Dynamically wraps Japanese text to fit width
-- **Process**: Generate all frames → Encode with libx264 → Merge audio with AAC
+- **Subtitle Style**: Single-line display with speaker color stroke
+  - Speaker A (Male): Blue accent (#78C8FF)
+  - Speaker B (Female): Pink accent (#FF96B4)
+- **Font Handling**: Searches for Japanese fonts (Noto CJK, Hiragino, MS Gothic)
+- **Text Wrapping**: Max 26 characters per line, split at natural break points
+- **Process**: Background + Subtitle clips → Composite → Export with AAC audio
+
+### CRITICAL: Subtitle Position Configuration
+
+The subtitle positioning in `video_maker_moviepy.py` is carefully tuned to prevent text cut-off.
+**DO NOT modify these values without thorough testing:**
+
+```python
+SUBTITLE_BOX_HEIGHT = 120    # Fixed height for text box
+SUBTITLE_Y_POSITION = 680    # Fixed Y position (top of text box)
+# Text bottom = 680 + 120 = 800px, leaving 280px margin
+```
+
+**Safe Area Calculation (1080p):**
+- Video height: 1080px
+- Subtitle Y position: 680px
+- Text box bottom: 800px
+- Bottom margin: 280px (safe)
+
+**If changing subtitle position:**
+1. MUST verify text is fully visible (not cut off at bottom)
+2. MUST stay within gradient overlay area (Y > 702 for bottom 35%)
+3. MUST test with long Japanese text (26+ characters)
+
+The module includes `_validate_subtitle_config()` which warns at load time if
+the configuration might cause text cut-off issues.
+
+**History:**
+- 2025-12-30: Fixed text cut-off by using `method='caption'` with fixed size box
+  and Y=680 position instead of dynamic positioning based on text height
 
 ## Batch Processing
 

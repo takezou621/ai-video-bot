@@ -6,7 +6,7 @@ Enhanced with subtitle optimization for better readability
 from pathlib import Path
 from typing import List, Dict, Any
 import os
-from subtitle_optimizer import SubtitleOptimizer
+import numpy as np
 
 try:
     from moviepy import (
@@ -17,6 +17,12 @@ try:
 except ImportError:
     MOVIEPY_AVAILABLE = False
     print("MoviePy not available, using fallback")
+
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
 
 
 # Video settings
@@ -35,6 +41,179 @@ SPEAKER_A_COLOR = MALE_COLOR
 SPEAKER_B_COLOR = FEMALE_COLOR
 TEXT_COLOR = 'white'
 BG_COLOR = 'rgba(20,20,30,0.85)'
+
+# Bottom gradient settings
+GRADIENT_HEIGHT_RATIO = 0.35  # Bottom 35% of the image
+GRADIENT_OPACITY = 0.7  # Maximum opacity at the bottom
+
+# =============================================================================
+# SUBTITLE CONFIGURATION - DO NOT MODIFY WITHOUT TESTING
+# =============================================================================
+# CRITICAL: These values were carefully tuned to prevent text cut-off issues.
+# The subtitle positioning uses a FIXED Y coordinate to ensure consistent
+# rendering across all frames. Previous attempts with dynamic positioning
+# (based on text height) resulted in text being cut off at the bottom.
+#
+# Safe Area Calculation (1080p):
+#   - Video height: 1080px
+#   - Subtitle Y position: 680px (top of text box)
+#   - Text box height: 120px
+#   - Text box bottom: 680 + 120 = 800px
+#   - Bottom margin: 1080 - 800 = 280px (safe)
+#
+# WARNING: If you change these values, you MUST verify that:
+#   1. Text is fully visible (not cut off at bottom)
+#   2. Text fits within the gradient overlay area (bottom 35% = Y > 702)
+#   3. Test with long Japanese text (26+ characters)
+#
+# History:
+#   - 2025-12-30: Fixed text cut-off by using method='caption' with fixed size
+#                 and Y=680 position instead of dynamic positioning
+# =============================================================================
+MAX_CHARS_PER_LINE = 26      # Max characters per line (Japanese text)
+SUBTITLE_BOX_HEIGHT = 120    # Fixed height for subtitle text box
+SUBTITLE_Y_POSITION = 680    # Fixed Y position - DO NOT LOWER without testing!
+SUBTITLE_SAFE_BOTTOM = 800   # Text box bottom (Y + HEIGHT) must not exceed 900
+
+
+def _validate_subtitle_config():
+    """
+    Validate subtitle configuration to prevent text cut-off issues.
+    Called at module load time to catch configuration errors early.
+    """
+    text_bottom = SUBTITLE_Y_POSITION + SUBTITLE_BOX_HEIGHT
+    max_safe_bottom = VIDEO_HEIGHT - 180  # Need at least 180px margin
+
+    if text_bottom > max_safe_bottom:
+        print(f"[SUBTITLE WARNING] Configuration may cause text cut-off!")
+        print(f"  Text bottom: {text_bottom}px, Max safe: {max_safe_bottom}px")
+        print(f"  Consider lowering SUBTITLE_Y_POSITION or SUBTITLE_BOX_HEIGHT")
+
+    # Only warn if text is significantly above gradient (more than 50px)
+    gradient_top = int(VIDEO_HEIGHT * (1 - GRADIENT_HEIGHT_RATIO))
+    if SUBTITLE_Y_POSITION < gradient_top - 50:
+        print(f"[SUBTITLE WARNING] Text positioned far above gradient area!")
+        print(f"  Subtitle Y: {SUBTITLE_Y_POSITION}px, Gradient starts: {gradient_top}px")
+
+
+# Validate configuration at module load
+_validate_subtitle_config()
+
+
+def _split_text_into_lines(text: str, max_chars: int = MAX_CHARS_PER_LINE) -> List[str]:
+    """
+    Split text into lines suitable for subtitle display.
+    Each line will have at most max_chars characters.
+    Prefers splitting at natural break points (punctuation, particles).
+
+    Args:
+        text: The text to split
+        max_chars: Maximum characters per line
+
+    Returns:
+        List of lines
+    """
+    if len(text) <= max_chars:
+        return [text]
+
+    lines = []
+    remaining = text
+
+    # Japanese break points (prefer splitting after these)
+    break_chars = '。、！？）」』】・'
+    # Particles that shouldn't start a new line
+    no_start_chars = 'はがのをにでとへもやかな'
+
+    while remaining:
+        if len(remaining) <= max_chars:
+            lines.append(remaining)
+            break
+
+        # Find best break point within max_chars
+        best_break = max_chars
+
+        # Look for punctuation break points
+        for i in range(max_chars - 1, max_chars // 2, -1):
+            if remaining[i] in break_chars:
+                best_break = i + 1
+                break
+        else:
+            # No punctuation found, avoid breaking before particles
+            for i in range(max_chars - 1, max_chars // 2, -1):
+                if remaining[i] not in no_start_chars:
+                    best_break = i
+                    break
+
+        lines.append(remaining[:best_break])
+        remaining = remaining[best_break:]
+
+    return lines
+
+
+def _create_gradient_overlay(width: int, height: int, gradient_ratio: float = 0.4) -> np.ndarray:
+    """
+    Create a gradient overlay image that darkens the bottom portion.
+
+    Args:
+        width: Image width
+        height: Image height
+        gradient_ratio: Ratio of image height to apply gradient (0.4 = bottom 40%)
+
+    Returns:
+        RGBA numpy array with gradient
+    """
+    # Create gradient array
+    gradient_height = int(height * gradient_ratio)
+    gradient_start = height - gradient_height
+
+    # Create RGBA array (transparent at top, black at bottom)
+    overlay = np.zeros((height, width, 4), dtype=np.uint8)
+
+    for y in range(gradient_start, height):
+        # Calculate alpha (0 at gradient_start, max at bottom)
+        progress = (y - gradient_start) / gradient_height
+        # Use ease-in curve for smoother gradient
+        alpha = int(200 * (progress ** 1.5))  # Max alpha 200 (out of 255)
+        overlay[y, :, 3] = alpha  # Set alpha channel
+        # RGB stays 0 (black)
+
+    return overlay
+
+
+def _apply_gradient_to_background(background_path: Path, output_path: Path) -> Path:
+    """
+    Apply a dark gradient to the bottom portion of the background image.
+
+    Args:
+        background_path: Original background image path
+        output_path: Path to save the processed image
+
+    Returns:
+        Path to the processed image
+    """
+    if not PIL_AVAILABLE:
+        return background_path
+
+    try:
+        with Image.open(background_path) as bg:
+            bg = bg.convert('RGBA')
+            width, height = bg.size
+
+            # Create gradient overlay
+            gradient = _create_gradient_overlay(width, height, GRADIENT_HEIGHT_RATIO)
+            gradient_img = Image.fromarray(gradient, 'RGBA')
+
+            # Composite gradient over background
+            result = Image.alpha_composite(bg, gradient_img)
+
+            # Save as RGB (no alpha needed for video)
+            result = result.convert('RGB')
+            result.save(output_path, 'PNG')
+
+            return output_path
+    except Exception as e:
+        print(f"  Warning: Failed to apply gradient: {e}")
+        return background_path
 
 
 def make_podcast_video_moviepy(
@@ -65,59 +244,22 @@ def make_podcast_video_moviepy(
 
     print("Creating video with MoviePy...")
 
-    # Optimize subtitles for better readability
-    print("  Optimizing subtitles...")
-    optimizer = SubtitleOptimizer()
-    timing_data = optimizer.optimize_timing_data(timing_data)
-
-    # Validate subtitle quality
-    validation = optimizer.validate_subtitle_quality(timing_data)
-    if not validation["passed"]:
-        print(f"  ⚠️  Subtitle quality issues detected:")
-        for issue in validation["issues"][:5]:  # Show first 5 issues
-            print(f"    - {issue}")
-    print(f"  Avg reading speed: {validation['stats']['avg_reading_speed']:.1f} chars/sec")
+    # Apply gradient to background for better subtitle readability
+    gradient_bg_path = output_path.parent / "background_gradient.png"
+    processed_bg = _apply_gradient_to_background(Path(background_path), gradient_bg_path)
+    print(f"  Applied dark gradient to bottom {int(GRADIENT_HEIGHT_RATIO*100)}% of background")
 
     # Load audio
     audio = AudioFileClip(str(audio_path))
     duration = audio.duration
 
-    # Create background clips
-    bg_clips = []
-    if isinstance(backgrounds, (Path, str)):
-        # Single background
-        bg_clips.append(
-            ImageClip(str(backgrounds)).with_duration(duration).resized((VIDEO_WIDTH, VIDEO_HEIGHT))
-        )
-    else:
-        # Multiple backgrounds
-        # Sort by start time
-        sorted_bgs = sorted(backgrounds, key=lambda x: x["start"])
-        for i, bg_info in enumerate(sorted_bgs):
-            bg_path = bg_info["path"]
-            start_time = bg_info["start"]
-            
-            # End time is either next background's start or video duration
-            if i + 1 < len(sorted_bgs):
-                end_time = sorted_bgs[i+1]["start"]
-            else:
-                end_time = duration
-                
-            bg_duration = end_time - start_time
-            if bg_duration <= 0:
-                continue
-                
-            clip = ImageClip(str(bg_path)).with_duration(bg_duration).resized((VIDEO_WIDTH, VIDEO_HEIGHT))
-            clip = clip.with_start(start_time)
-            
-            # Optional: Add cross-fade between backgrounds
-            if i > 0:
-                clip = clip.with_effects([vfx.CrossFadeIn(0.5)])
-                
-            bg_clips.append(clip)
+    # Create background clip with gradient
+    background = ImageClip(str(processed_bg)).with_duration(duration)
+    background = background.resized((VIDEO_WIDTH, VIDEO_HEIGHT))
 
-    # Create subtitle clips
+    # Create subtitle clips - display one line at a time
     subtitle_clips = []
+    font = _find_japanese_font()
 
     for i, segment in enumerate(timing_data):
         speaker = segment["speaker"]
@@ -138,63 +280,77 @@ def make_podcast_video_moviepy(
         else:
             color = MALE_COLOR  # Default to male color
 
-        try:
-            # Create text clip with MoviePy
-            # Try to use Japanese font
-            font = _find_japanese_font()
+        # Split text into individual lines for single-line display
+        lines = _split_text_into_lines(text)
+        num_lines = len(lines)
 
-            txt_clip = TextClip(
-                text=text,
-                font_size=FONT_SIZE,
-                color=TEXT_COLOR,
-                font=font,
-                size=(VIDEO_WIDTH - 200, None),
-                method='caption',
-                text_align='center',
-                stroke_color=color,
-                stroke_width=3
-            )
+        # Calculate duration per line (distribute evenly across segment)
+        line_duration = seg_duration / num_lines
+        current_time = start
 
-            # Position with sufficient bottom margin to prevent cut-off
-            # Ensures 2-3 lines of text with stroke fit safely within the frame
-            # Y position is the TOP of the text clip, so we need extra margin
-            # for text height (~100-120px) + stroke width + internal padding
-            # Setting to 400px to ensure complete visibility with safety margin
-            bottom_margin = 400
-            txt_clip = txt_clip.with_position(
-                ('center', VIDEO_HEIGHT - bottom_margin)
-            )
-            txt_clip = txt_clip.with_start(start)
-            txt_clip = txt_clip.with_duration(seg_duration)
+        for line_idx, line_text in enumerate(lines):
+            line_start = current_time
+            line_end = current_time + line_duration
+            current_time = line_end
 
-            # Add fade effects for smoother transitions
-            if seg_duration > 0.5:
-                txt_clip = txt_clip.with_effects([
-                    vfx.FadeIn(0.2),
-                    vfx.FadeOut(0.2)
-                ])
+            # Ensure last line ends exactly at segment end
+            if line_idx == num_lines - 1:
+                line_end = end
+                line_duration = line_end - line_start
 
-            subtitle_clips.append(txt_clip)
+            if line_duration <= 0:
+                continue
 
-        except Exception as e:
-            print(f"  Warning: Failed to create subtitle for segment {i}: {e}")
-            # Create simple text clip as fallback
             try:
+                # Create text clip for single line
+                # Use 'caption' method with fixed size to ensure consistent positioning
+                # See SUBTITLE CONFIGURATION section at top of file for details
                 txt_clip = TextClip(
-                    text=text[:100],  # Limit length
+                    text=line_text,
                     font_size=FONT_SIZE,
                     color=TEXT_COLOR,
-                    method='label'
+                    font=font,
+                    method='caption',
+                    size=(VIDEO_WIDTH - 100, SUBTITLE_BOX_HEIGHT),
+                    text_align='center',
+                    stroke_color=color,
+                    stroke_width=3,  # Thicker stroke for visibility
                 )
-                bottom_margin = 400
-                txt_clip = txt_clip.with_position(
-                    ('center', VIDEO_HEIGHT - bottom_margin)
-                )
-                txt_clip = txt_clip.with_start(start)
-                txt_clip = txt_clip.with_duration(min(seg_duration, 5))
+
+                # Position subtitle using configured Y position
+                # DO NOT change this without updating SUBTITLE_Y_POSITION constant
+                txt_clip = txt_clip.with_position(('center', SUBTITLE_Y_POSITION))
+                txt_clip = txt_clip.with_start(line_start)
+                txt_clip = txt_clip.with_duration(line_duration)
+
+                # Add fade effects for smoother transitions
+                if line_duration > 0.3:
+                    fade_time = min(0.1, line_duration * 0.15)
+                    txt_clip = txt_clip.with_effects([
+                        vfx.FadeIn(fade_time),
+                        vfx.FadeOut(fade_time)
+                    ])
+
                 subtitle_clips.append(txt_clip)
-            except:
-                continue
+
+            except Exception as e:
+                print(f"  Warning: Failed to create subtitle for segment {i}, line {line_idx}: {e}")
+                # Fallback: try with simpler settings (uses same positioning constants)
+                try:
+                    txt_clip = TextClip(
+                        text=line_text[:40],  # Limit length
+                        font_size=FONT_SIZE,
+                        color=TEXT_COLOR,
+                        method='caption',
+                        size=(VIDEO_WIDTH - 100, SUBTITLE_BOX_HEIGHT),
+                        text_align='center',
+                    )
+                    txt_clip = txt_clip.with_position(('center', SUBTITLE_Y_POSITION))
+                    txt_clip = txt_clip.with_start(line_start)
+                    txt_clip = txt_clip.with_duration(line_duration)
+                    subtitle_clips.append(txt_clip)
+                except:
+                    continue
 
     # Composite all clips
     print(f"  Compositing {len(bg_clips)} background clips and {len(subtitle_clips)} subtitle clips...")

@@ -53,3 +53,6 @@ nanobanana-output/
 
 # Sample output files (generated content)
 sample_improved_script.json
+
+# Google service account (credentials)
+service_account.json
