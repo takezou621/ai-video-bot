@@ -230,15 +230,44 @@ The system automatically falls back through tiers if earlier options are unavail
 
 ## Video Rendering Details
 
-`video_maker.py` creates podcast-style videos:
+`video_maker_moviepy.py` creates podcast-style videos with MoviePy:
 
 - **Resolution**: 1920x1080 @ 30fps
-- **Subtitle Style**: Semi-transparent boxes with speaker color indicators
-  - Speaker A: Blue accent (120, 200, 255)
-  - Speaker B: Orange accent (255, 200, 120)
-- **Font Handling**: Searches for Japanese fonts across platforms (Noto CJK, Hiragino, MS Gothic)
-- **Text Wrapping**: Dynamically wraps Japanese text to fit width
-- **Process**: Generate all frames → Encode with libx264 → Merge audio with AAC
+- **Subtitle Style**: Single-line display with speaker color stroke
+  - Speaker A (Male): Blue accent (#78C8FF)
+  - Speaker B (Female): Pink accent (#FF96B4)
+- **Font Handling**: Searches for Japanese fonts (Noto CJK, Hiragino, MS Gothic)
+- **Text Wrapping**: Max 26 characters per line, split at natural break points
+- **Process**: Background + Subtitle clips → Composite → Export with AAC audio
+
+### CRITICAL: Subtitle Position Configuration
+
+The subtitle positioning in `video_maker_moviepy.py` is carefully tuned to prevent text cut-off.
+**DO NOT modify these values without thorough testing:**
+
+```python
+SUBTITLE_BOX_HEIGHT = 120    # Fixed height for text box
+SUBTITLE_Y_POSITION = 680    # Fixed Y position (top of text box)
+# Text bottom = 680 + 120 = 800px, leaving 280px margin
+```
+
+**Safe Area Calculation (1080p):**
+- Video height: 1080px
+- Subtitle Y position: 680px
+- Text box bottom: 800px
+- Bottom margin: 280px (safe)
+
+**If changing subtitle position:**
+1. MUST verify text is fully visible (not cut off at bottom)
+2. MUST stay within gradient overlay area (Y > 702 for bottom 35%)
+3. MUST test with long Japanese text (26+ characters)
+
+The module includes `_validate_subtitle_config()` which warns at load time if
+the configuration might cause text cut-off issues.
+
+**History:**
+- 2025-12-30: Fixed text cut-off by using `method='caption'` with fixed size box
+  and Y=680 position instead of dynamic positioning based on text height
 
 ## Batch Processing
 

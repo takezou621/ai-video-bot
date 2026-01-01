@@ -23,13 +23,14 @@ from topic_history import add_topic_to_history
 from cleanup import cleanup_video_temp_files
 import shutil
 
-# Import video maker with MoviePy support
+# Import video maker with FFmpeg support (New Step 2 Implementation)
 try:
-    from video_maker_moviepy import make_podcast_video
-    USE_MOVIEPY = os.getenv("USE_MOVIEPY", "true").lower() == "true"
+    from video_maker_ffmpeg import make_podcast_video
+    print("Using FFmpeg video maker (Step 2 optimization)")
 except ImportError:
+    print("FFmpeg maker not found, falling back to legacy")
     from video_maker import make_podcast_video
-    USE_MOVIEPY = False
+
 from nano_banana_client import generate_image
 from notifications import (
     notify_video_start,
@@ -267,11 +268,10 @@ def generate_single_video(
                   ensure_ascii=False, indent=2)
 
         # Step 5: Create video with subtitles
-        print("\n[5/10] 🎬 Creating video with subtitles...")
-        if USE_MOVIEPY:
-            print("  Using MoviePy for high-quality rendering...")
+        print("\n[5/10] 🎬 Creating video with subtitles (FFmpeg)...")
         video_path = outdir / "video.mp4"
-        make_podcast_video(bg_path, timing_data, audio_file, video_path, use_moviepy=USE_MOVIEPY)
+        # use_moviepy argument is deprecated/ignored in FFmpeg version
+        make_podcast_video(bg_path, timing_data, audio_file, video_path)
 
         # Get video duration
         import subprocess

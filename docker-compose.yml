@@ -7,6 +7,7 @@ services:
     environment:
       - TZ=Asia/Tokyo
       - OLLAMA_BASE_URL=http://ollama:11434
+      - VOICEVOX_URL=http://voicevox:50021
     volumes:
       - .:/app
       - ./outputs:/app/outputs
@@ -14,78 +15,77 @@ services:
       - ./youtube_token.pickle:/app/youtube_token.pickle
       - ./youtube_credentials.json:/app/youtube_credentials.json
     working_dir: /app
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
     command: ["tail", "-f", "/dev/null"]
     depends_on:
-      - ollama
+      - voicevox
     networks:
       - ai-video-network
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ai-video-ollama
-    volumes:
-      - ollama-models:/root/.ollama
-    ports:
-      - "11434:11434"
-    environment:
-      - OLLAMA_MODELS=/root/.ollama/models
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    networks:
-      - ai-video-network
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: ai-video-ollama
+  #   volumes:
+  #     - ollama-models:/root/.ollama
+  #   ports:
+  #     - "11434:11434"
+  #   environment:
+  #     - OLLAMA_MODELS=/root/.ollama/models
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
+  #   networks:
+  #     - ai-video-network
 
+  # VOICEVOX Engine - Japanese TTS
+  # For Mac M4/Apple Silicon: uses CPU image (no GPU acceleration)
+  # For NVIDIA GPU: override with docker-compose.nvidia.yml
   voicevox:
-    image: voicevox/voicevox_engine:nvidia-ubuntu20.04-latest
+    image: voicevox/voicevox_engine:cpu-ubuntu20.04-latest
     container_name: ai-video-voicevox
     ports:
       - "50021:50021"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+    environment:
+      - VV_CPU_NUM_THREADS=4
+    volumes:
+      - voicevox-cache:/root/.local/share/voicevox-engine
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:50021/speakers"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     networks:
       - ai-video-network
 
-  stable-diffusion:
-    image: runpod/stable-diffusion:web-ui-10.2.1
-    container_name: ai-video-sd
-    ports:
-      - "7860:3000"
-      - "3000:3000"
-    environment:
-      - CLI_ARGS=--listen --api --use-cpu all --precision full --no-half --skip-torch-cuda-test --no-half-vae --enable-insecure-extension-access --port 3000
-    volumes:
-      - sd-models:/workspace/stable-diffusion-webui/models
-      - sd-outputs:/workspace/stable-diffusion-webui/outputs
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    networks:
-      - ai-video-network
+  # stable-diffusion:
+  #   image: runpod/stable-diffusion:web-ui-10.2.1
+  #   container_name: ai-video-sd
+  #   ports:
+  #     - "7860:3000"
+  #     - "3000:3000"
+  #   environment:
+  #     - CLI_ARGS=--listen --api --use-cpu all --precision full --no-half --skip-torch-cuda-test --no-half-vae --enable-insecure-extension-access --port 3000
+  #   volumes:
+  #     - sd-models:/workspace/stable-diffusion-webui/models
+  #     - sd-outputs:/workspace/stable-diffusion-webui/outputs
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
+  #   networks:
+  #     - ai-video-network
 
 volumes:
   ollama-models:
   sd-models:
   sd-outputs:
+  voicevox-cache:
 
 networks:
   ai-video-network:

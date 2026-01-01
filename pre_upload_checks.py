@@ -102,6 +102,54 @@ def _is_sorted_timestamps(timestamps: List[Dict[str, Any]]) -> bool:
     return times == sorted(times)
 
 
+def _check_text_quality(dialogues: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Check text quality in dialogues for TTS readiness.
+
+    Returns:
+        Dict with:
+        - passed: bool
+        - issues: List[str] - List of issues found
+        - html_entities_found: int
+        - long_english_phrases: int
+    """
+    import re
+
+    issues = []
+    html_entities_found = 0
+    long_english_phrases = 0
+
+    for i, dialogue in enumerate(dialogues):
+        text = dialogue.get("text", "")
+
+        # Check for HTML entities (&#xxxx; or &name;)
+        html_matches = re.findall(r'&(?:#\d+|#x[0-9a-fA-F]+|[a-zA-Z]+);', text)
+        if html_matches:
+            html_entities_found += len(html_matches)
+            issues.append(f"Dialogue {i+1}: HTML entities found: {html_matches[:3]}")
+
+        # Check for long English phrases (5+ consecutive English words)
+        english_phrases = re.findall(r'(?:[A-Za-z]+[\s,.\-\'\';:]*){6,}', text)
+        if english_phrases:
+            long_english_phrases += len(english_phrases)
+            # Show first 50 chars of the phrase
+            phrase_preview = english_phrases[0][:50] + "..." if len(english_phrases[0]) > 50 else english_phrases[0]
+            issues.append(f"Dialogue {i+1}: Long English phrase: {phrase_preview}")
+
+        # Check for very short dialogues (less than 5 characters)
+        if len(text.strip()) < 5:
+            issues.append(f"Dialogue {i+1}: Text too short ({len(text)} chars)")
+
+    passed = html_entities_found == 0 and long_english_phrases == 0
+
+    return {
+        "passed": passed,
+        "issues": issues[:10],  # Limit to 10 issues
+        "html_entities_found": html_entities_found,
+        "long_english_phrases": long_english_phrases,
+    }
+
+
 def _has_unique_labels(timestamps: List[Dict[str, Any]], min_unique: int) -> bool:
     labels = {ts.get("label") for ts in timestamps if ts.get("label")}
     return len(labels) >= min_unique
@@ -182,6 +230,23 @@ def run_pre_upload_checks(
         "script_dialogues",
         script_ok,
         "Dialogue count OK" if script_ok else "Dialogue count too low"
+    ))
+
+    # TEXT QUALITY CHECK: Validate dialogues for TTS readiness
+    dialogues = script.get("dialogues", [])
+    text_quality = _check_text_quality(dialogues)
+    text_quality_ok = text_quality["passed"]
+    if text_quality_ok:
+        text_detail = "Text quality OK (no HTML entities or long English phrases)"
+    else:
+        text_detail = f"Text quality issues: {text_quality['html_entities_found']} HTML entities, {text_quality['long_english_phrases']} long English phrases"
+        if text_quality["issues"]:
+            text_detail += f" - {text_quality['issues'][0]}"
+    checks.append(CheckResult(
+        "text_quality",
+        text_quality_ok,
+        text_detail,
+        is_critical=False  # Warning only, don't block upload (text_normalizer will fix)
     ))
 
     duration_diff = abs(expected_duration_seconds - timing_data[-1].get("end", 0) if timing_data else 0)

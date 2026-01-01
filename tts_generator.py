@@ -1,48 +1,55 @@
 """
-Gemini TTS Generator - Podcast-style dialogue audio generation
-Enhanced with ElevenLabs STT for accurate subtitle timing
+TTS Generator - Podcast-style dialogue audio generation
+Primary: VOICEVOX (local, free, high-quality Japanese)
+Fallback: Gemini TTS (API, paid) → gTTS (basic fallback)
+
+Enhanced with accurate subtitle timing via Whisper STT.
 """
 import os
 import json
-import base64
-import requests
-import voicevox_client
-import text_normalizer
+import subprocess
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+import voicevox_client
+import text_normalizer
 
-# Gemini TTS Model Selection (December 2025 - latest models)
+# TTS Priority Configuration
+USE_VOICEVOX = os.getenv("USE_VOICEVOX", "true").lower() == "true"
+VOICEVOX_AVAILABLE = voicevox_client.is_available() if USE_VOICEVOX else False
+
+# Gemini TTS (fallback)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
+MALE_VOICE_NAME = os.getenv("GEMINI_TTS_MALE_VOICE", "Fenrir")
+FEMALE_VOICE_NAME = os.getenv("GEMINI_TTS_FEMALE_VOICE", "Aoede")
 
 # Audio Speed Factor (1.0 = normal, 1.3 = 30% faster)
-SPEED_FACTOR = 1.3
+SPEED_FACTOR = float(os.getenv("TTS_SPEED_FACTOR", "1.0"))  # VOICEVOX handles speed internally
 
-# Local TTS (VoiceVox) - prioritized if enabled
-USE_VOICEVOX = os.getenv("USE_VOICEVOX", "true").lower() == "true" and voicevox_client.is_available()
-
-# Whisper STT (local, free) - prioritized over ElevenLabs
+# Whisper STT (local, free) - for subtitle timing
 USE_WHISPER_STT = os.getenv("USE_WHISPER_STT", "true").lower() == "true"
-WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")  # tiny, base, small, medium, large
+WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")
 
-# ElevenLabs STT (paid API) - fallback if Whisper disabled
-USE_ELEVENLABS_STT_ENV = os.getenv("USE_ELEVENLABS_STT", "false").lower() == "true"
-USE_ELEVENLABS_STT = USE_ELEVENLABS_STT_ENV and bool(ELEVENLABS_API_KEY)
+# ElevenLabs STT (paid API) - fallback for subtitle timing
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+USE_ELEVENLABS_STT = os.getenv("USE_ELEVENLABS_STT", "false").lower() == "true" and bool(ELEVENLABS_API_KEY)
 
-# Log TTS and subtitle timing strategy
-if USE_VOICEVOX:
-    print(f"[INFO] Using VOICEVOX (local, FREE) for high-quality Japanese speech")
+# Log TTS strategy
+if VOICEVOX_AVAILABLE:
+    print(f"[TTS] Primary: VOICEVOX (local, FREE)")
+elif GEMINI_API_KEY:
+    print(f"[TTS] Primary: Gemini TTS ({GEMINI_TTS_MODEL})")
 else:
-    print(f"[INFO] Using Gemini TTS model: {GEMINI_TTS_MODEL}")
+    print("[TTS] Primary: gTTS (basic fallback)")
 
 if USE_WHISPER_STT:
-    print(f"[INFO] Using Whisper STT (local, FREE) for accurate subtitles - model: {WHISPER_MODEL_SIZE}")
+    print(f"[TTS] Subtitle timing: Whisper STT (local, FREE) - model: {WHISPER_MODEL_SIZE}")
 elif USE_ELEVENLABS_STT:
-    print("[INFO] Using ElevenLabs STT (paid API) for accurate subtitles")
+    print("[TTS] Subtitle timing: ElevenLabs STT (paid API)")
 else:
-    print("[INFO] Using timing estimation for subtitles (less accurate)")
+    print("[TTS] Subtitle timing: Duration estimation")
+
 
 def generate_dialogue_audio(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[Dict]]:
     """
@@ -57,187 +64,285 @@ def generate_dialogue_audio(dialogues: List[Dict], output_path: Path) -> Tuple[P
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if not USE_VOICEVOX and not GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY is required when VoiceVox is disabled")
+    # Normalize all dialogues first
+    normalized_dialogues = []
+    for d in dialogues:
+        text = d.get("text", "").strip()
+        if not text:
+            continue
+
+        # Apply normalization
+        text = text_normalizer.normalize_for_tts_advanced(text)
+        text = text_normalizer.normalize_text_for_tts(text)
+
+        normalized_dialogues.append({
+            "speaker": d.get("speaker", "男性"),
+            "text": text,
+            "original_text": d.get("text", ""),
+        })
+
+    if not normalized_dialogues:
+        print("[TTS] No valid dialogues to process")
+        return _create_empty_audio(output_path), []
+
+    # Choose TTS engine
+    if VOICEVOX_AVAILABLE:
+        return _generate_with_voicevox(normalized_dialogues, output_path)
+    elif GEMINI_API_KEY:
+        return _generate_with_gemini(normalized_dialogues, output_path)
+    else:
+        return _fallback_tts(normalized_dialogues, output_path)
+
+
+def _generate_with_voicevox(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[Dict]]:
+    """Generate audio using VOICEVOX with persistent chunking."""
+    print("[TTS] Using VOICEVOX for synthesis...")
 
     chunk_paths = []
-    estimated_timing = []
+    timing_data = []
     current_time = 0.0
 
-    try:
-        for idx, dialogue in enumerate(dialogues):
-            text = dialogue.get("text", "")
-            if not text.strip():
-                continue
-            
-            # Normalize text for proper reading (English -> Katakana)
-            text = text_normalizer.normalize_text_for_tts(text)
-            
-            chunk_path = output_path.parent / f"chunk_{idx}.wav"
-            
-            if USE_VOICEVOX:
-                # Map speaker for VoiceVox
-                speaker_type = "female" if dialogue.get("speaker") in ["女性", "B", "Female"] else "male"
-                voicevox_client.generate_voice(text, chunk_path, speaker_type=speaker_type)
-            else:
-                # Gemini TTS
-                voice = _determine_voice(dialogue.get("speaker"))
-                audio_bytes, mime_type = _request_gemini_tts(text, voice)
-                _write_audio_chunk(audio_bytes, mime_type, chunk_path)
-            
-            # Calculate duration accounting for future speedup
-            raw_duration = _get_audio_duration(chunk_path)
-            duration = raw_duration / SPEED_FACTOR
-            
-            estimated_timing.append({
-                "speaker": dialogue.get("speaker"),
-                "text": text,
+    # P0 Fix: Use persistent chunks directory for idempotency
+    chunks_dir = output_path.parent / "chunks"
+    chunks_dir.mkdir(exist_ok=True)
+
+    for idx, dialogue in enumerate(dialogues):
+        text = dialogue.get("text", "").strip()
+        speaker = dialogue.get("speaker", "男性")
+        
+        # Role-based mapping (Main/Sub)
+        speaker_role = "sub" if speaker in ["女性", "B", "Female", "Sub"] else "main"
+
+        # Consistent naming for idempotency
+        chunk_filename = f"chunk_{idx:04d}.wav"
+        chunk_path = chunks_dir / chunk_filename
+
+        # Idempotency: Check if chunk already exists
+        if chunk_path.exists() and chunk_path.stat().st_size > 0:
+            # print(f"[TTS] Skipping existing chunk {idx}")
+            result = chunk_path
+        else:
+            result = voicevox_client.generate_voice(
+                text,
+                chunk_path,
+                speaker_role=speaker_role,
+            )
+
+        if result:
+            duration = voicevox_client.get_audio_duration(chunk_path)
+            timing_data.append({
+                "chunk_id": chunk_filename,  # P0 Fix: Link chunk ID
+                "speaker": speaker,
+                "text": dialogue.get("original_text", text),
                 "start": current_time,
-                "end": current_time + duration
+                "end": current_time + duration,
             })
             current_time += duration
             chunk_paths.append(chunk_path)
+        else:
+            print(f"[TTS] Warning: Failed to generate chunk {idx}")
 
-        if not chunk_paths:
-            print("No audio chunks generated, using fallback")
-            return _fallback_tts(dialogues, output_path)
-
-        final_path = output_path.with_suffix(".mp3")
-        concat_file = output_path.parent / "tts_concat.txt"
-        with open(concat_file, "w", encoding="utf-8") as f:
-            for chunk in chunk_paths:
-                f.write(f"file '{chunk}'\n")
-
-        import subprocess
-        subprocess.run([
-            "ffmpeg", "-y",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", str(concat_file),
-            "-filter:a", f"atempo={SPEED_FACTOR}",
-            "-c:a", "libmp3lame",
-            "-b:a", "192k",
-            str(final_path)
-        ], check=True, capture_output=True)
-
-        # Cleanup chunks
-        concat_file.unlink(missing_ok=True)
-        for chunk in chunk_paths:
-            chunk.unlink(missing_ok=True)
-
-        timing_data = None
-
-        if USE_WHISPER_STT and not timing_data:
-            try:
-                from whisper_stt import generate_accurate_subtitles_with_whisper
-                timing_data = generate_accurate_subtitles_with_whisper(
-                    dialogues,
-                    final_path,
-                    model_size=WHISPER_MODEL_SIZE
-                )
-                if timing_data:
-                    print("✅ Using Whisper STT for accurate timing (100% FREE)")
-                    return final_path, timing_data
-            except Exception as e:
-                print(f"  Whisper STT failed: {e}, trying fallback...")
-
-        if USE_ELEVENLABS_STT and not timing_data:
-            try:
-                from elevenlabs_stt import generate_accurate_subtitles
-                timing_data = generate_accurate_subtitles(dialogues, final_path)
-                if timing_data:
-                    print("  Using ElevenLabs STT for accurate timing (paid API)")
-                    return final_path, timing_data
-            except Exception as e:
-                print(f"  ElevenLabs STT failed: {e}, using estimation")
-
-        print("  Using estimated timing (pre-TTS durations adjusted for speed)")
-        return final_path, estimated_timing
-
-    except Exception as e:
-        print(f"Gemini TTS failed: {e}, using fallback")
+    if not chunk_paths:
+        print("[TTS] No chunks generated, falling back to gTTS")
         return _fallback_tts(dialogues, output_path)
+
+    # Concatenate chunks using audio_mastering
+    from audio_mastering import master_episode
+
+    final_mp3, adjusted_timing = master_episode(
+        chunk_paths=chunk_paths,
+        chunks_metadata=[{"speaker": d["speaker"], "text": d.get("original_text", d["text"])} for d in dialogues],
+        output_dir=output_path.parent,
+        episode_id=0,
+        normalize=True,
+        crossfade=True,
+    )
+
+    # Move/rename to expected output path
+    if final_mp3 != output_path.with_suffix(".mp3"):
+        import shutil
+        target = output_path.with_suffix(".mp3")
+        shutil.move(str(final_mp3), str(target))
+        final_mp3 = target
+
+    # P0 Fix: DO NOT delete chunks. Keep them for retry/debugging.
+    
+    # P0 Fix: Skip global Whisper alignment to avoid cumulative drift for long videos.
+    # We now trust the precise timing from audio_mastering (derived from chunk durations).
+    # timing_result = _get_accurate_timing(dialogues, final_mp3, adjusted_timing)
+    print("[TTS] Skipping global Whisper alignment to prevent drift (using precise chunk timing)")
+    timing_result = adjusted_timing
+    
+    # Add chunk_ids back to timing result if lost during mastering adjustment
+    # (Assuming simple 1:1 mapping for now, though mastering might shift things)
+    if len(timing_result) == len(timing_data):
+        for t_res, t_orig in zip(timing_result, timing_data):
+            t_res["chunk_id"] = t_orig.get("chunk_id")
+
+    print(f"[TTS] VOICEVOX generation complete: {final_mp3}")
+    return final_mp3, timing_result
+
+
+def _generate_with_gemini(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[Dict]]:
+    """Generate audio using Gemini TTS API."""
+    import base64
+    import requests
+    import time as time_module
+
+    print("[TTS] Using Gemini TTS for synthesis...")
+
+    chunk_paths = []
+    timing_data = []
+    current_time = 0.0
+
+    for idx, dialogue in enumerate(dialogues):
+        text = dialogue.get("text", "")
+        speaker = dialogue.get("speaker", "男性")
+        voice = FEMALE_VOICE_NAME if speaker in ["女性", "B", "Female"] else MALE_VOICE_NAME
+
+        chunk_path = output_path.parent / f"chunk_{idx}.wav"
+
+        # Rate limiting for Gemini API
+        max_retries = 3
+        for retry in range(max_retries):
+            try:
+                audio_bytes, mime_type = _request_gemini_tts(text, voice)
+                _write_audio_chunk(audio_bytes, mime_type, chunk_path)
+
+                duration = _get_audio_duration(chunk_path)
+                if SPEED_FACTOR != 1.0:
+                    duration = duration / SPEED_FACTOR
+
+                timing_data.append({
+                    "speaker": speaker,
+                    "text": dialogue.get("original_text", text),
+                    "start": current_time,
+                    "end": current_time + duration,
+                })
+                current_time += duration
+                chunk_paths.append(chunk_path)
+
+                # Rate limit: wait between requests
+                if idx < len(dialogues) - 1:
+                    time_module.sleep(21)  # 3 req/min limit
+                break
+
+            except RuntimeError as e:
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    wait_time = 25 * (retry + 1)
+                    print(f"[TTS] Rate limited, waiting {wait_time}s...")
+                    time_module.sleep(wait_time)
+                    if retry == max_retries - 1:
+                        print(f"[TTS] Failed after {max_retries} retries")
+                else:
+                    raise
+
+    if not chunk_paths:
+        return _fallback_tts(dialogues, output_path)
+
+    # Concatenate and convert
+    final_path = output_path.with_suffix(".mp3")
+    _concatenate_chunks(chunk_paths, final_path)
+
+    # Cleanup
+    for chunk in chunk_paths:
+        chunk.unlink(missing_ok=True)
+
+    # Get accurate timing
+    timing_result = _get_accurate_timing(dialogues, final_path, timing_data)
+
+    return final_path, timing_result
 
 
 def _fallback_tts(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[Dict]]:
-    """Fallback to gTTS if Gemini TTS fails"""
+    """Fallback to gTTS if other engines fail."""
     from gtts import gTTS
-    import subprocess
 
-    # Generate audio for each dialogue segment
+    print("[TTS] Using gTTS fallback...")
+
     temp_files = []
     timing_data = []
     current_time = 0.0
 
     for i, d in enumerate(dialogues):
-        if not d.get("text") or not d["text"].strip():
-            print(f"  [TTS] Skipping empty dialogue segment {i}")
+        text = d.get("text", "")
+        if not text.strip():
             continue
-            
+
         temp_path = output_path.parent / f"temp_{i}.mp3"
 
-        # Note: gTTS doesn't support different voices for male/female,
-        # but we maintain the speaker label for subtitle rendering
-        tts = gTTS(text=d["text"], lang="ja")
-        tts.save(str(temp_path))
-        temp_files.append(temp_path)
+        try:
+            tts = gTTS(text=text, lang="ja")
+            tts.save(str(temp_path))
+            temp_files.append(temp_path)
 
-        # Measure actual duration and adjust for speedup
-        # (gTTS produces slow speech, so we must measure the original and divide)
-        raw_duration = _get_audio_duration(temp_path)
-        duration = raw_duration / SPEED_FACTOR
-        
-        timing_data.append({
-            "speaker": d["speaker"],  # Preserve original speaker label (男性/女性 or A/B)
-            "text": d["text"],
-            "start": current_time,
-            "end": current_time + duration
-        })
-        current_time += duration
+            duration = _get_audio_duration(temp_path)
+            if SPEED_FACTOR != 1.0:
+                duration = duration / SPEED_FACTOR
+
+            timing_data.append({
+                "speaker": d.get("speaker", "男性"),
+                "text": d.get("original_text", text),
+                "start": current_time,
+                "end": current_time + duration,
+            })
+            current_time += duration
+
+        except Exception as e:
+            print(f"[TTS] gTTS failed for segment {i}: {e}")
 
     final_path = output_path.with_suffix(".mp3")
-    
-    # Concatenate audio files with speedup
-    if len(temp_files) > 1:
-        list_file = output_path.parent / "audio_list.txt"
-        with open(list_file, "w") as f:
-            for tf in temp_files:
-                f.write(f"file '{tf}'\n")
 
-        subprocess.run([
-            "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-            "-i", str(list_file),
-            "-filter:a", f"atempo={SPEED_FACTOR}",
-            "-c:a", "libmp3lame", "-b:a", "192k",
-            str(final_path)
-        ], check=True, capture_output=True)
-
-        # Cleanup
+    if temp_files:
+        _concatenate_chunks(temp_files, final_path, speed_factor=SPEED_FACTOR)
         for tf in temp_files:
-            tf.unlink()
-        list_file.unlink()
+            tf.unlink(missing_ok=True)
     else:
-        # Process single file with speedup
-        subprocess.run([
-            "ffmpeg", "-y",
-            "-i", str(temp_files[0]),
-            "-filter:a", f"atempo={SPEED_FACTOR}",
-            "-c:a", "libmp3lame", "-b:a", "192k",
-            str(final_path)
-        ], check=True, capture_output=True)
-        temp_files[0].unlink()
+        _create_empty_audio(final_path)
 
     return final_path, timing_data
 
 
-def _determine_voice(speaker: Optional[str]) -> str:
-    if speaker in ["女性", "B", "Female"]:
-        return FEMALE_VOICE_NAME
-    # Default to male voice for "男性", "A", "Male", or unknown
-    return MALE_VOICE_NAME
+def _get_accurate_timing(
+    dialogues: List[Dict],
+    audio_path: Path,
+    estimated_timing: List[Dict],
+) -> List[Dict]:
+    """Get accurate subtitle timing using Whisper or ElevenLabs STT."""
+
+    if USE_WHISPER_STT:
+        try:
+            from whisper_stt import generate_accurate_subtitles_with_whisper
+            timing = generate_accurate_subtitles_with_whisper(
+                dialogues,
+                audio_path,
+                model_size=WHISPER_MODEL_SIZE,
+            )
+            if timing:
+                print("[TTS] Using Whisper STT for accurate timing (100% FREE)")
+                return timing
+        except Exception as e:
+            print(f"[TTS] Whisper STT failed: {e}")
+
+    if USE_ELEVENLABS_STT:
+        try:
+            from elevenlabs_stt import generate_accurate_subtitles
+            timing = generate_accurate_subtitles(dialogues, audio_path)
+            if timing:
+                print("[TTS] Using ElevenLabs STT for accurate timing")
+                return timing
+        except Exception as e:
+            print(f"[TTS] ElevenLabs STT failed: {e}")
+
+    print("[TTS] Using estimated timing")
+    return estimated_timing
 
 
 def _request_gemini_tts(text: str, voice_name: str) -> Tuple[bytes, str]:
+    """Request audio from Gemini TTS API."""
+    import base64
+    import requests
+
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
         f"{GEMINI_TTS_MODEL}:generateContent?key={GEMINI_API_KEY}"
@@ -255,24 +360,28 @@ def _request_gemini_tts(text: str, voice_name: str) -> Tuple[bytes, str]:
             }
         }
     }
+
     r = requests.post(url, json=payload, timeout=120)
     data = r.json()
+
     if "error" in data:
         raise RuntimeError(data["error"])
+
     for part in data.get("candidates", [{}])[0].get("content", {}).get("parts", []):
         if "inlineData" in part:
             audio = base64.b64decode(part["inlineData"]["data"])
             mime = part["inlineData"].get("mimeType", "audio/L16")
             return audio, mime
+
     raise RuntimeError("Gemini TTS response missing inlineData")
 
 
 def _write_audio_chunk(audio_bytes: bytes, mime_type: str, output_path: Path):
+    """Write raw audio bytes to WAV file."""
     raw_path = output_path.with_suffix(".raw")
     with open(raw_path, "wb") as f:
         f.write(audio_bytes)
 
-    import subprocess
     if "L16" in mime_type or "pcm" in mime_type.lower():
         subprocess.run([
             "ffmpeg", "-y",
@@ -294,93 +403,80 @@ def _write_audio_chunk(audio_bytes: bytes, mime_type: str, output_path: Path):
     raw_path.unlink(missing_ok=True)
 
 
+def _concatenate_chunks(chunk_paths: List[Path], output_path: Path, speed_factor: float = 1.0):
+    """Concatenate audio chunks into single file."""
+    concat_file = output_path.parent / "tts_concat.txt"
+
+    with open(concat_file, "w", encoding="utf-8") as f:
+        for chunk in chunk_paths:
+            f.write(f"file '{chunk}'\n")
+
+    filter_args = []
+    if speed_factor != 1.0:
+        filter_args = ["-filter:a", f"atempo={speed_factor}"]
+
+    subprocess.run([
+        "ffmpeg", "-y",
+        "-f", "concat",
+        "-safe", "0",
+        "-i", str(concat_file),
+        *filter_args,
+        "-c:a", "libmp3lame",
+        "-b:a", "192k",
+        str(output_path)
+    ], check=True, capture_output=True)
+
+    concat_file.unlink(missing_ok=True)
+
+
 def _get_audio_duration(audio_path: Path) -> float:
-    """Get actual audio duration using ffprobe"""
-    import subprocess
+    """Get audio duration using ffprobe."""
     try:
         result = subprocess.run([
-            "ffprobe", "-v", "error", "-show_entries",
-            "format=duration", "-of", "csv=p=0", str(audio_path)
-        ], capture_output=True, text=True)
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "csv=p=0",
+            str(audio_path)
+        ], capture_output=True, text=True, timeout=10)
         return float(result.stdout.strip())
     except:
-        return 60.0  # Default fallback
+        return 60.0
 
 
-def _estimate_timing_scaled(dialogues: List[Dict], actual_duration: float) -> List[Dict]:
-    """
-    Estimate timing for subtitles and scale to match actual audio duration.
-
-    This calculates relative timing based on text length, then scales
-    everything to fit the actual audio duration.
-    """
-    if not dialogues:
-        return []
-
-    # Calculate relative weights based on text length
-    weights = []
-    for d in dialogues:
-        # Weight based on character count (Japanese chars take longer)
-        weight = len(d["text"])
-        weights.append(weight)
-
-    total_weight = sum(weights)
-    if total_weight == 0:
-        total_weight = 1
-
-    # Leave minimal gaps between segments for natural flow
-    pause_time = 0.1  # Reduced pause between speakers (was 0.2)
-    total_pause_time = pause_time * (len(dialogues) - 1)
-    available_speech_time = actual_duration - total_pause_time
-
-    if available_speech_time < 0:
-        available_speech_time = actual_duration * 0.98  # Use more time (was 0.95)
-        pause_time = (actual_duration * 0.02) / max(1, len(dialogues) - 1)
-
-    # Generate timing data with slight early offset for better sync
-    timing_data = []
-    current_time = 0.0
-    offset = 0.1  # Start subtitles slightly early for better perception
-
-    for i, d in enumerate(dialogues):
-        # Calculate duration proportional to text length
-        duration = (weights[i] / total_weight) * available_speech_time
-        duration = max(0.5, duration)  # Minimum 0.5 second per segment (was 1.0)
-
-        # Apply offset only to non-first segments for natural flow
-        segment_offset = 0 if i == 0 else offset
-
-        timing_data.append({
-            "speaker": d["speaker"],
-            "text": d["text"],
-            "start": max(0, current_time - segment_offset),
-            "end": current_time + duration
-        })
-
-        current_time += duration
-        if i < len(dialogues) - 1:
-            current_time += pause_time
-
-    print(f"  Timing scaled to {actual_duration:.1f}s audio duration")
-    return timing_data
+def _create_empty_audio(output_path: Path) -> Path:
+    """Create a short silent audio file."""
+    final_path = output_path.with_suffix(".mp3")
+    subprocess.run([
+        "ffmpeg", "-y",
+        "-f", "lavfi",
+        "-i", "anullsrc=r=24000:cl=mono",
+        "-t", "1",
+        "-c:a", "libmp3lame",
+        str(final_path)
+    ], capture_output=True)
+    return final_path
 
 
-def _estimate_timing(dialogues: List[Dict]) -> List[Dict]:
-    """Estimate timing for subtitles based on text length (legacy)"""
-    timing_data = []
-    current_time = 0.0
+if __name__ == "__main__":
+    print("=== TTS Generator Test ===\n")
 
-    for d in dialogues:
-        # Rough estimate: Japanese speech ~7 chars/second (faster for Gemini TTS)
-        duration = max(2.0, len(d["text"]) / 7.0)
-        timing_data.append({
-            "speaker": d["speaker"],
-            "text": d["text"],
-            "start": current_time,
-            "end": current_time + duration
-        })
-        current_time += duration + 0.3  # Small pause between speakers
+    # Test dialogues
+    test_dialogues = [
+        {"speaker": "男性", "text": "こんにちは、本日のニュースをお届けします。"},
+        {"speaker": "女性", "text": "AIの進化が加速していますね。"},
+        {"speaker": "男性", "text": "OpenAIのGPT-5が発表されました。"},
+    ]
 
-    return timing_data
-MALE_VOICE_NAME = os.getenv("GEMINI_TTS_MALE_VOICE", "Fenrir")
-FEMALE_VOICE_NAME = os.getenv("GEMINI_TTS_FEMALE_VOICE", "Aoede")
+    test_output = Path("/tmp/tts_test/dialogue.mp3")
+
+    print(f"VOICEVOX available: {VOICEVOX_AVAILABLE}")
+    print(f"Gemini API key: {'Yes' if GEMINI_API_KEY else 'No'}")
+
+    result_path, timing = generate_dialogue_audio(test_dialogues, test_output)
+
+    print(f"\nOutput: {result_path}")
+    print(f"Duration: {_get_audio_duration(result_path):.1f}s")
+    print(f"Timing entries: {len(timing)}")
+
+    for t in timing:
+        print(f"  [{t['start']:.1f}-{t['end']:.1f}] {t['speaker']}: {t['text'][:30]}...")
