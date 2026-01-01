@@ -241,7 +241,26 @@ def create_thumbnail(
         print(f"  Background brightness: {bg_brightness:.2f} (0=dark, 1=bright)")
         print(f"  Selected text color: {'White' if text_color == (255, 255, 255) else 'Black'}")
 
-        draw = ImageDraw.Draw(bg)
+        # Add semi-transparent overlay if contrast is low or just for style
+        # Always add a slight gradient or overlay to improve text readability
+        if bg_brightness < 0.6 or bg_brightness > 0.9: # If too dark OR too bright (needs contrast)
+            overlay = Image.new('RGBA', bg.size, (0, 0, 0, 0))
+            draw_overlay = ImageDraw.Draw(overlay)
+            
+            # Bottom gradient/block for text area
+            # A simple dark band at the bottom 1/3 (where text usually sits)
+            overlay_height = int(THUMBNAIL_HEIGHT * 0.4)
+            overlay_y = THUMBNAIL_HEIGHT - overlay_height
+            draw_overlay.rectangle(
+                [0, overlay_y, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT],
+                fill=(0, 0, 0, 160) # Dark semi-transparent
+            )
+            
+            bg = Image.alpha_composite(bg.convert('RGBA'), overlay).convert('RGB')
+            # Re-initialize draw object for the new composite image
+            draw = ImageDraw.Draw(bg)
+        else:
+            draw = ImageDraw.Draw(bg)
 
         # Get font
         title_font = get_japanese_font(TITLE_FONT_SIZE)

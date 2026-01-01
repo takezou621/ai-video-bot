@@ -1,10 +1,12 @@
 """
 MoviePy-based Video Maker - Higher quality subtitle rendering
 Based on the Zenn article's approach using MoviePy
+Enhanced with subtitle optimization for better readability
 """
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Any
 import os
+from subtitle_optimizer import SubtitleOptimizer
 
 try:
     from moviepy import (
@@ -36,7 +38,7 @@ BG_COLOR = 'rgba(20,20,30,0.85)'
 
 
 def make_podcast_video_moviepy(
-    background_path: Path,
+    backgrounds: Any, # Can be Path or List[Dict[str, Any]]
     timing_data: List[Dict],
     audio_path: Path,
     output_path: Path
@@ -45,7 +47,7 @@ def make_podcast_video_moviepy(
     Create podcast-style video using MoviePy for higher quality.
 
     Args:
-        background_path: Path to background image
+        backgrounds: Path to background image OR List of {"path": Path, "start": float}
         timing_data: List of {"speaker", "text", "start", "end"}
         audio_path: Path to audio file
         output_path: Output video path
@@ -54,21 +56,65 @@ def make_podcast_video_moviepy(
         Path to created video
     """
     if not MOVIEPY_AVAILABLE:
-        # Fallback to PIL-based video maker
+        # Fallback to PIL-based video maker (doesn't support multiple backgrounds yet)
         from video_maker import make_podcast_video
-        return make_podcast_video(background_path, timing_data, audio_path, output_path)
+        bg_path = backgrounds if isinstance(backgrounds, (Path, str)) else backgrounds[0]["path"]
+        return make_podcast_video(bg_path, timing_data, audio_path, output_path)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     print("Creating video with MoviePy...")
 
+    # Optimize subtitles for better readability
+    print("  Optimizing subtitles...")
+    optimizer = SubtitleOptimizer()
+    timing_data = optimizer.optimize_timing_data(timing_data)
+
+    # Validate subtitle quality
+    validation = optimizer.validate_subtitle_quality(timing_data)
+    if not validation["passed"]:
+        print(f"  ⚠️  Subtitle quality issues detected:")
+        for issue in validation["issues"][:5]:  # Show first 5 issues
+            print(f"    - {issue}")
+    print(f"  Avg reading speed: {validation['stats']['avg_reading_speed']:.1f} chars/sec")
+
     # Load audio
     audio = AudioFileClip(str(audio_path))
     duration = audio.duration
 
-    # Create background clip
-    background = ImageClip(str(background_path)).with_duration(duration)
-    background = background.resized((VIDEO_WIDTH, VIDEO_HEIGHT))
+    # Create background clips
+    bg_clips = []
+    if isinstance(backgrounds, (Path, str)):
+        # Single background
+        bg_clips.append(
+            ImageClip(str(backgrounds)).with_duration(duration).resized((VIDEO_WIDTH, VIDEO_HEIGHT))
+        )
+    else:
+        # Multiple backgrounds
+        # Sort by start time
+        sorted_bgs = sorted(backgrounds, key=lambda x: x["start"])
+        for i, bg_info in enumerate(sorted_bgs):
+            bg_path = bg_info["path"]
+            start_time = bg_info["start"]
+            
+            # End time is either next background's start or video duration
+            if i + 1 < len(sorted_bgs):
+                end_time = sorted_bgs[i+1]["start"]
+            else:
+                end_time = duration
+                
+            bg_duration = end_time - start_time
+            if bg_duration <= 0:
+                continue
+                
+            clip = ImageClip(str(bg_path)).with_duration(bg_duration).resized((VIDEO_WIDTH, VIDEO_HEIGHT))
+            clip = clip.with_start(start_time)
+            
+            # Optional: Add cross-fade between backgrounds
+            if i > 0:
+                clip = clip.with_effects([vfx.CrossFadeIn(0.5)])
+                
+            bg_clips.append(clip)
 
     # Create subtitle clips
     subtitle_clips = []
@@ -151,9 +197,9 @@ def make_podcast_video_moviepy(
                 continue
 
     # Composite all clips
-    print(f"  Compositing {len(subtitle_clips)} subtitle clips...")
+    print(f"  Compositing {len(bg_clips)} background clips and {len(subtitle_clips)} subtitle clips...")
     video = CompositeVideoClip(
-        [background] + subtitle_clips,
+        bg_clips + subtitle_clips,
         size=(VIDEO_WIDTH, VIDEO_HEIGHT)
     )
 
@@ -208,7 +254,7 @@ def _find_japanese_font() -> str:
 
 # For compatibility, keep the same function name
 def make_podcast_video(
-    background_path: Path,
+    background_path: Any, # Path or List[Dict]
     timing_data: List[Dict],
     audio_path: Path,
     output_path: Path,
@@ -218,7 +264,7 @@ def make_podcast_video(
     Create podcast-style video with optional MoviePy rendering.
 
     Args:
-        background_path: Path to background image
+        background_path: Path to background image or List of background segments
         timing_data: List of subtitle timing data
         audio_path: Path to audio file
         output_path: Output video path
@@ -232,10 +278,21 @@ def make_podcast_video(
             background_path, timing_data, audio_path, output_path
         )
     else:
-        # Use original PIL-based method
+        # Use original PIL-based method (Fallback)
+        # Handle list input by taking the first background
+        if isinstance(background_path, list):
+            # Assuming list of dicts with 'path' key
+            try:
+                real_bg_path = background_path[0]["path"]
+            except (IndexError, KeyError, TypeError):
+                 # Fallback if list structure is unexpected
+                real_bg_path = background_path
+        else:
+            real_bg_path = background_path
+            
         from video_maker import make_podcast_video as make_video_pil
         return make_video_pil(
-            background_path, timing_data, audio_path, output_path
+            real_bg_path, timing_data, audio_path, output_path
         )
 
 

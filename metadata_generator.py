@@ -1,10 +1,12 @@
 """
 Automated Metadata Generator
 Generates complete YouTube metadata using templates
+Enhanced with CTR optimization for better click-through rates
 """
 import re
 from typing import Dict, Any, List, Optional
 from content_templates import ContentTemplates
+from title_ctr_optimizer import TitleCTROptimizer
 
 
 def generate_complete_metadata(
@@ -32,6 +34,9 @@ def generate_complete_metadata(
     key_points = []
     named_entities = script.get("named_entities", [])
     primary_entity = _get_primary_entity(named_entities)
+
+    # Extract labels from named entities for CTR analysis
+    named_entity_labels = [entity.get("label") for entity in named_entities if entity.get("label")]
 
     # Extract key points from dialogues
     dialogues = script.get("dialogues", [])
@@ -75,6 +80,26 @@ def generate_complete_metadata(
     youtube_title = claude_metadata.get("youtube_title", title) if claude_metadata else title
     youtube_title = _enforce_named_entity_prefix(youtube_title, primary_entity)
 
+    # Optimize title for CTR (blog's SEO approach)
+    title_optimizer = TitleCTROptimizer()
+    title_analysis = title_optimizer.analyze_title(youtube_title, named_entity_labels)
+
+    # If CTR score is low, try to improve
+    if title_analysis["ctr_score"] < 60:
+        print(f"  [CTR] Title score low ({title_analysis['ctr_score']}/100), generating optimized variants...")
+        variants = title_optimizer.generate_optimized_variants(youtube_title, named_entity_labels)
+
+        # Use best variant if significantly better
+        best_variant = variants[0]
+        if best_variant["analysis"]["ctr_score"] > title_analysis["ctr_score"] + 15:
+            print(f"  [CTR] Using optimized variant (score: {best_variant['analysis']['ctr_score']}/100)")
+            youtube_title = best_variant["title"]
+            title_analysis = best_variant["analysis"]
+        else:
+            print(f"  [CTR] Keeping original title (score: {title_analysis['ctr_score']}/100)")
+    else:
+        print(f"  [CTR] Title score good ({title_analysis['ctr_score']}/100, grade: {title_analysis['grade']})")
+
     metadata = {
         "youtube_title": youtube_title,
         "youtube_description": full_description,
@@ -84,6 +109,7 @@ def generate_complete_metadata(
         "timestamps": timestamps,
         "duration_formatted": _format_duration(video_duration_seconds),
         "named_entities": named_entities,
+        "title_ctr_analysis": title_analysis,  # Add CTR analysis to metadata
     }
 
     return metadata

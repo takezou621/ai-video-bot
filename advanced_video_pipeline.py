@@ -1,12 +1,14 @@
 """
 Advanced Video Generation Pipeline
 Integrates all the blog's features: web search, Gemini AI, thumbnails, notifications, tracking, YouTube upload
+Enhanced with parallel processing for faster generation (blog's 30min/30min goal)
 """
 import os
 import datetime
 import json
 from pathlib import Path
 from dotenv import load_dotenv
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Import all our new modules
 from web_search import search_trending_topics, select_topic_with_claude, search_latest_ai_news
@@ -44,6 +46,8 @@ from metadata_generator import (
     generate_engagement_comments
 )
 from youtube_uploader import upload_video_with_metadata
+from thumbnail_ab_testing import ThumbnailVariationGenerator
+from audio_quality_validator import AudioQualityValidator
 
 BADGE_LABELS = {
     "economics": "経済",
@@ -154,31 +158,156 @@ def generate_single_video(
         json.dump(script, open(outdir / "script.json", "w", encoding="utf-8"),
                   ensure_ascii=False, indent=2)
 
-        # Step 3: Generate background image
-        print("\n[3/10] 🎨 Generating background image with optimized prompt...")
-        bg_path = outdir / "background.png"
-        
-        # Generate optimized prompt and thumbnail data
+        # Step 3+4: Generate audio and images IN PARALLEL (blog's optimization for 30min/30min goal)
+        print("\n[3+4/10] 🎨🎙️  Generating audio and images in parallel...")
+
+        # Prepare audio generation task
+        audio_path = outdir / "dialogue"
+        section_indices = [s.get("start_dialogue_index", 0) for s in script.get("sections", [])]
+
+        # Prepare image generation task
+        sections = script.get("sections", [])
         thumbnail_data = generate_thumbnail_prompt(
             title=script["title"],
             topic_category=topic_category,
             thumbnail_text=script.get("thumbnail_text")
         )
-        bg_prompt = thumbnail_data["prompt"]
-        print(f"  Prompt: {bg_prompt[:50]}...")
-        
-        generate_image(bg_prompt, bg_path)
-        print(f"  Background saved: {bg_path}")
 
-        # Step 4: Generate audio with dialogue
-        print("\n[4/10] 🎙️  Generating dialogue audio with Gemini TTS...")
-        audio_path = outdir / "dialogue"
-        audio_file, timing_data = generate_dialogue_audio(script["dialogues"], audio_path)
-        print(f"  Audio saved: {audio_file}")
-        print(f"  Timing data: {len(timing_data)} segments")
+        # Execute audio and image generation in parallel
+        audio_file = None
+        timing_data = None
+        backgrounds = None
+        bg_path = None
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            # Submit audio generation task
+            audio_future = executor.submit(
+                generate_dialogue_audio,
+                script["dialogues"],
+                audio_path,
+                section_indices
+            )
+
+            # Submit image generation task
+            def generate_images_task():
+                from info_card_generator import create_benchmark_card
+                from PIL import Image
+
+                nonlocal backgrounds, bg_path
+
+                if sections and len(sections) > 1:
+                    print(f"  [Image] Multi-section mode: {len(sections)} sections found.")
+                    backgrounds = []
+
+                    for i, section in enumerate(sections):
+                        sect_idx = section.get("start_dialogue_index", 0)
+                        # Estimate start time (will be updated after audio generation)
+                        start_time = sect_idx * 10  # Rough estimate: 10 seconds per dialogue
+
+                        img_path = outdir / f"background_{i:02d}.png"
+                        img_prompt = section.get("image_prompt", script.get("background_prompt"))
+                        print(f"  [Image] Generating section {i} image: {img_prompt[:30]}...")
+                        generate_image(img_prompt, img_path)
+
+                        # Check for benchmarks to create info-card
+                        benchmarks = section.get("benchmarks", [])
+                        if benchmarks:
+                            card_path = outdir / f"bench_card_{i:02d}.png"
+                            create_benchmark_card(section.get("title", "Benchmarks"), benchmarks, card_path)
+
+                            # Overlay card on background
+                            try:
+                                bg_img = Image.open(img_path).convert("RGBA")
+                                card_img = Image.open(card_path).convert("RGBA")
+                                bg_w, bg_h = bg_img.size
+                                card_w, card_h = card_img.size
+                                offset = ((bg_w - card_w) // 2, (bg_h - card_h) // 2)
+                                bg_img.paste(card_img, offset, card_img)
+                                bg_img.save(img_path)
+                                print(f"  [Image] Info-card overlaid on background_{i:02d}.png")
+                            except Exception as e:
+                                print(f"  [Image] Failed to overlay info-card: {e}")
+
+                        backgrounds.append({"path": img_path, "start": start_time})
+
+                    bg_path = backgrounds[0]["path"]
+                else:
+                    bg_path = outdir / "background.png"
+                    bg_prompt = thumbnail_data["prompt"]
+                    print(f"  [Image] Single image prompt: {bg_prompt[:50]}...")
+                    generate_image(bg_prompt, bg_path)
+                    backgrounds = bg_path
+
+                return backgrounds, bg_path
+
+            image_future = executor.submit(generate_images_task)
+
+            # Wait for both tasks to complete
+            print("  Waiting for parallel tasks to complete...")
+
+            # Get audio results
+            try:
+                audio_file, timing_data = audio_future.result(timeout=600)  # 10 min timeout
+                print(f"  ✓ Audio saved: {audio_file}")
+                print(f"  ✓ Timing data: {len(timing_data)} segments")
+            except Exception as e:
+                print(f"  ✗ Audio generation failed: {e}")
+                raise
+
+            # Get image results
+            try:
+                backgrounds, bg_path = image_future.result(timeout=600)  # 10 min timeout
+                print(f"  ✓ Images generated")
+            except Exception as e:
+                print(f"  ✗ Image generation failed: {e}")
+                raise
+
+        # Update timing for multi-section backgrounds
+        if isinstance(backgrounds, list) and timing_data:
+            for bg in backgrounds:
+                sect_idx = next((i for i, s in enumerate(sections) if s.get("start_dialogue_index", 0) <= len(timing_data)), 0)
+                if sect_idx < len(timing_data):
+                    bg["start"] = timing_data[sections[sect_idx].get("start_dialogue_index", 0)]["start"]
 
         # Save timing data
         json.dump(timing_data, open(outdir / "timing.json", "w", encoding="utf-8"),
+                  ensure_ascii=False, indent=2)
+
+        print(f"  ⚡ Parallel processing complete!")
+
+        # Step 4.5: Validate audio and subtitle quality
+        print("\n[4.5/10] 🔍 Validating audio and subtitle quality...")
+        audio_validator = AudioQualityValidator()
+
+        # Validate audio file
+        audio_report = audio_validator.validate_audio_file(audio_file)
+        if not audio_report["passed"]:
+            print(f"  ⚠️  Audio quality issues:")
+            for error in audio_report["errors"]:
+                print(f"    - {error}")
+        else:
+            print(f"  ✓ Audio quality: OK")
+
+        if audio_report["warnings"]:
+            print(f"  ⚠️  Audio quality warnings:")
+            for warning in audio_report["warnings"][:3]:
+                print(f"    - {warning}")
+
+        # Validate audio-subtitle sync
+        sync_report = audio_validator.validate_audio_subtitle_sync(audio_file, timing_data)
+        if sync_report["passed"]:
+            print(f"  ✓ Audio-subtitle sync: OK ({sync_report.get('subtitle_coverage', 0):.1f}% coverage)")
+        else:
+            print(f"  ⚠️  Audio-subtitle sync issues:")
+            for error in sync_report["errors"]:
+                print(f"    - {error}")
+
+        # Save quality report
+        quality_report = {
+            "audio": audio_report,
+            "sync": sync_report
+        }
+        json.dump(quality_report, open(outdir / "quality_report.json", "w", encoding="utf-8"),
                   ensure_ascii=False, indent=2)
 
         # Step 5: Create video with subtitles
@@ -186,7 +315,7 @@ def generate_single_video(
         if USE_MOVIEPY:
             print("  Using MoviePy for high-quality rendering...")
         video_path = outdir / "video.mp4"
-        make_podcast_video(bg_path, timing_data, audio_file, video_path, use_moviepy=USE_MOVIEPY)
+        make_podcast_video(backgrounds, timing_data, audio_file, video_path, use_moviepy=USE_MOVIEPY)
 
         # Get video duration
         import subprocess
@@ -273,6 +402,31 @@ def generate_single_video(
             # raise RuntimeError("Thumbnail lint failed - regenerate or adjust layout.")
         else:
             print("  Thumbnail QA passed ✅")
+
+        # Optional: Generate A/B testing variations (blog's optimization approach)
+        generate_ab_variants = os.getenv("GENERATE_THUMBNAIL_VARIANTS", "false").lower() == "true"
+        if generate_ab_variants:
+            print("\n[8.1/10] 🎨 Generating A/B testing thumbnail variations...")
+            try:
+                variant_gen = ThumbnailVariationGenerator()
+                variants_dir = outdir / "thumbnail_variants"
+                variants = variant_gen.generate_variations(
+                    background_image_path=bg_path,
+                    thumbnail_text=thumbnail_prompt_data["thumbnail_text"],
+                    output_dir=variants_dir,
+                    count=5
+                )
+                print(f"  Generated {len(variants)} variations in: {variants_dir}")
+
+                # Save variant metadata
+                json.dump(
+                    {"variants": variants},
+                    open(outdir / "thumbnail_variants.json", "w", encoding="utf-8"),
+                    ensure_ascii=False,
+                    indent=2
+                )
+            except Exception as e:
+                print(f"  ⚠️  Failed to generate thumbnail variants: {e}")
 
         print("\n[8.5/10] ✅ Running pre-upload checks...")
         validation = run_pre_upload_checks(

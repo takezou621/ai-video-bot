@@ -14,14 +14,24 @@ RSS_FEEDS = {
         "https://gizmodo.com/rss"
     ],
     "ai_news": [
-        "https://www.artificialintelligence-news.com/feed/",
+        # Corporate AI Blogs (Primary Sources)
+        "http://googleaiblog.blogspot.com/atom.xml",  # Google AI
+        "https://blogs.microsoft.com/ai/feed/",       # Microsoft AI
+        "https://aws.amazon.com/blogs/machine-learning/feed/", # AWS ML
+        "https://blogs.nvidia.com/blog/category/deep-learning/feed/", # NVIDIA
+        "https://openai.com/news/rss.xml", # OpenAI (If available, otherwise reliant on aggregators)
+
+        # AI Tech News (Speed)
+        "https://techcrunch.com/category/artificial-intelligence/feed/",
         "https://venturebeat.com/category/ai/feed/",
-        "https://mittr-kokusai.jp/category/ai/feed", # MIT Tech Review JP AI
-        "https://b.hatena.ne.jp/entrylist/it.rss"     # Hatena IT
-    ],
-    "economics": [
-        "https://feeds.bloomberg.co.jp/rss/news/market.xml",
-        "https://www3.nhk.or.jp/rss/news/cat3.xml" # NHK Business
+        "https://www.theverge.com/rss/artificial-intelligence/index.xml",
+        "https://arstechnica.com/tag/ai/feed/",
+        "https://www.theregister.com/software/ai_ml/headlines.atom",
+
+        # Research & Deep Dives
+        "https://mittr-kokusai.jp/category/ai/feed",
+        "https://blog.langchain.dev/rss/",
+        "https://simonwillison.net/atom/everything/", # Often covers AI engineering
     ]
 }
 

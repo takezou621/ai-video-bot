@@ -10,6 +10,7 @@ import voicevox_client
 import text_normalizer
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
+from api_key_manager import get_api_key, report_api_success, report_api_failure
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
@@ -44,18 +45,24 @@ elif USE_ELEVENLABS_STT:
 else:
     print("[INFO] Using timing estimation for subtitles (less accurate)")
 
-def generate_dialogue_audio(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[Dict]]:
+def generate_dialogue_audio(
+    dialogues: List[Dict], 
+    output_path: Path,
+    section_indices: List[int] = None
+) -> Tuple[Path, List[Dict]]:
     """
     Generate podcast-style dialogue audio.
 
     Args:
         dialogues: List of {"speaker": "A/B/男性/女性", "text": "..."}
         output_path: Path to save the audio file
+        section_indices: Optional list of dialogue indices where a new section starts
 
     Returns:
         Tuple of (audio_path, timing_data for subtitles)
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    section_indices = section_indices or []
 
     if not USE_VOICEVOX and not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY is required when VoiceVox is disabled")
@@ -66,6 +73,15 @@ def generate_dialogue_audio(dialogues: List[Dict], output_path: Path) -> Tuple[P
 
     try:
         for idx, dialogue in enumerate(dialogues):
+            # Topic change pause
+            if idx in section_indices and idx > 0:
+                print(f"  [TTS] Adding topic change pause at dialogue {idx}")
+                # Add 1.5s pause (unscaled, so it becomes ~1.1s at 1.3x)
+                pause_path = output_path.parent / f"pause_{idx}.wav"
+                _create_silence(pause_path, 1.5)
+                chunk_paths.append(pause_path)
+                current_time += 1.5 / SPEED_FACTOR
+
             text = dialogue.get("text", "")
             if not text.strip():
                 continue
@@ -238,33 +254,85 @@ def _determine_voice(speaker: Optional[str]) -> str:
 
 
 def _request_gemini_tts(text: str, voice_name: str) -> Tuple[bytes, str]:
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{GEMINI_TTS_MODEL}:generateContent?key={GEMINI_API_KEY}"
-    )
-    payload = {
-        "contents": [{"parts": [{"text": text}]}],
-        "generationConfig": {
-            "responseModalities": ["AUDIO"],
-            "speechConfig": {
-                "voiceConfig": {
-                    "prebuiltVoiceConfig": {
-                        "voiceName": voice_name
+    """
+    Request Gemini TTS with API key rotation support.
+    Implements the blog's strategy of multiple API keys for rate limit handling.
+    """
+    max_retries = 3
+    last_error = None
+
+    for attempt in range(max_retries):
+        try:
+            # Get next available API key
+            api_key = get_api_key("GEMINI")
+
+            url = (
+                f"https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{GEMINI_TTS_MODEL}:generateContent?key={api_key}"
+            )
+            payload = {
+                "contents": [{"parts": [{"text": text}]}],
+                "generationConfig": {
+                    "responseModalities": ["AUDIO"],
+                    "speechConfig": {
+                        "voiceConfig": {
+                            "prebuiltVoiceConfig": {
+                                "voiceName": voice_name
+                            }
+                        }
                     }
                 }
             }
-        }
-    }
-    r = requests.post(url, json=payload, timeout=120)
-    data = r.json()
-    if "error" in data:
-        raise RuntimeError(data["error"])
-    for part in data.get("candidates", [{}])[0].get("content", {}).get("parts", []):
-        if "inlineData" in part:
-            audio = base64.b64decode(part["inlineData"]["data"])
-            mime = part["inlineData"].get("mimeType", "audio/L16")
-            return audio, mime
-    raise RuntimeError("Gemini TTS response missing inlineData")
+
+            r = requests.post(url, json=payload, timeout=120)
+
+            # Check for rate limiting
+            if r.status_code == 429:
+                report_api_failure("GEMINI", api_key, is_rate_limit=True)
+                if attempt < max_retries - 1:
+                    print(f"  [TTS] Rate limit hit (attempt {attempt + 1}/{max_retries}), trying next key...")
+                    continue
+                raise RuntimeError("Rate limit exceeded")
+
+            r.raise_for_status()
+            data = r.json()
+
+            if "error" in data:
+                error_msg = str(data["error"])
+                is_rate_limit = "quota" in error_msg.lower() or "rate" in error_msg.lower()
+                report_api_failure("GEMINI", api_key, is_rate_limit=is_rate_limit)
+
+                if is_rate_limit and attempt < max_retries - 1:
+                    print(f"  [TTS] Quota error (attempt {attempt + 1}/{max_retries}), trying next key...")
+                    continue
+                raise RuntimeError(error_msg)
+
+            for part in data.get("candidates", [{}])[0].get("content", {}).get("parts", []):
+                if "inlineData" in part:
+                    audio = base64.b64decode(part["inlineData"]["data"])
+                    mime = part["inlineData"].get("mimeType", "audio/L16")
+
+                    # Success!
+                    report_api_success("GEMINI", api_key)
+                    return audio, mime
+
+            # No audio data found
+            report_api_failure("GEMINI", api_key)
+            raise RuntimeError("Gemini TTS response missing inlineData")
+
+        except requests.exceptions.RequestException as e:
+            last_error = e
+            if 'api_key' in locals():
+                is_rate_limit = "429" in str(e) or "quota" in str(e).lower()
+                report_api_failure("GEMINI", api_key, is_rate_limit=is_rate_limit)
+
+            if attempt < max_retries - 1:
+                print(f"  [TTS] Request failed (attempt {attempt + 1}/{max_retries}): {e}")
+                continue
+            raise
+
+    # All retries exhausted
+    raise RuntimeError(f"Gemini TTS failed after {max_retries} attempts: {last_error}")
 
 
 def _write_audio_chunk(audio_bytes: bytes, mime_type: str, output_path: Path):
@@ -384,3 +452,13 @@ def _estimate_timing(dialogues: List[Dict]) -> List[Dict]:
     return timing_data
 MALE_VOICE_NAME = os.getenv("GEMINI_TTS_MALE_VOICE", "Fenrir")
 FEMALE_VOICE_NAME = os.getenv("GEMINI_TTS_FEMALE_VOICE", "Aoede")
+
+def _create_silence(path: Path, duration: float):
+    """Create a silent WAV file using ffmpeg"""
+    import subprocess
+    subprocess.run([
+        "ffmpeg", "-y",
+        "-f", "lavfi", "-i", f"anullsrc=r=24000:cl=mono",
+        "-t", str(duration),
+        str(path)
+    ], check=True, capture_output=True)
