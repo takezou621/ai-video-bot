@@ -360,20 +360,15 @@ def master_episode(
         print("[Mastering]   Simple concatenation...")
         _concatenate_simple(chunk_paths, concat_wav)
 
-    # Step 3: Trim silence
-    trimmed_wav = output_dir / f"episode_{episode_id:04d}_trimmed.wav"
-    print("[Mastering]   Trimming silence...")
-    trim_silence(concat_wav, trimmed_wav)
-
-    # Step 4: Normalize volume
+    # Step 3: Normalize volume (Skip silence trimming to preserve timing)
     if normalize:
         normalized_wav = output_dir / f"episode_{episode_id:04d}_normalized.wav"
         print(f"[Mastering]   Normalizing to {TARGET_LUFS} LUFS...")
-        normalize_volume(trimmed_wav, normalized_wav, TARGET_LUFS)
+        normalize_volume(concat_wav, normalized_wav, TARGET_LUFS)
     else:
-        normalized_wav = trimmed_wav
+        normalized_wav = concat_wav
 
-    # Step 5: Convert to MP3
+    # Step 4: Convert to MP3
     final_mp3 = output_dir / f"dialogue.mp3"
     print("[Mastering]   Converting to MP3...")
     convert_to_mp3(normalized_wav, final_mp3, OUTPUT_BITRATE)
@@ -397,7 +392,7 @@ def master_episode(
             timing_data[-1]["end"] = final_duration
 
     # Cleanup intermediate files
-    for temp_file in [concat_wav, trimmed_wav]:
+    for temp_file in [concat_wav]:
         if temp_file.exists() and temp_file != normalized_wav:
             temp_file.unlink(missing_ok=True)
     if normalize and normalized_wav.exists() and normalized_wav != final_mp3:

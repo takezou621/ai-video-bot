@@ -20,6 +20,61 @@ except ImportError:
     WHISPER_AVAILABLE = False
     print("[WARNING] OpenAI Whisper not installed. Install with: pip install openai-whisper")
 
+# Import normalizers for better matching
+try:
+    import text_normalizer
+    import voicevox_dictionary
+    NORMALIZERS_AVAILABLE = True
+except ImportError:
+    NORMALIZERS_AVAILABLE = False
+    print("[WARNING] Normalizers not found, matching might be less accurate")
+
+
+def normalize_for_matching(text: str) -> str:
+    """
+    Normalize text for comparison (convert English/Numbers to Japanese reading).
+    Removes all punctuation and symbols for maximum matching robustness.
+    """
+    if not text:
+        return ""
+    
+    # 1. Decode HTML just in case
+    import html
+    normalized = html.unescape(text)
+    
+    # 2. Basic normalization (lowercase, remove whitespace)
+    normalized = normalized.strip().lower().replace(" ", "").replace("　", "")
+    
+    # 3. Remove punctuation and symbols
+    import re
+    # Remove things like 、。！？?.,![]()""''...
+    normalized = re.sub(r'[^\w\s\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]', '', normalized)
+    
+    if not NORMALIZERS_AVAILABLE:
+        return normalized
+
+    # 4. Convert numbers/dates using text_normalizer
+    try:
+        normalized = text_normalizer.normalize_for_tts(normalized)
+        # Re-remove any punctuation added by normalizer (like dots in versions)
+        normalized = re.sub(r'[^\w\s\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]', '', normalized)
+    except Exception:
+        pass
+
+    # 5. Convert English terms using dictionary
+    try:
+        all_entries = voicevox_dictionary.ESSENTIAL_DICTIONARY + getattr(voicevox_dictionary, "MATCHING_ONLY_DICTIONARY", [])
+        sorted_entries = sorted(all_entries, key=lambda x: len(x.surface), reverse=True)
+        
+        for entry in sorted_entries:
+            # Case-insensitive replacement
+            pattern = re.compile(re.escape(entry.surface), re.IGNORECASE)
+            normalized = pattern.sub(entry.pronunciation, normalized)
+    except Exception:
+        pass
+        
+    return normalized
+
 
 def transcribe_audio_with_whisper(
     audio_path: Path,
@@ -119,8 +174,24 @@ def align_script_with_whisper_transcription(
 
     print(f"  Aligning {len(script_dialogues)} dialogues with Whisper transcription...")
 
+    # Pre-normalize transcription for faster matching
+    # We keep original indices to map back to timestamps
+    normalized_segments = []
+    for s in whisper_segments:
+        normalized_segments.append({
+            "text": normalize_for_matching(s["text"]),
+            "original_text": s["text"],
+            "start": s["start"],
+            "end": s["end"]
+        })
+
     for i, dialogue in enumerate(script_dialogues):
-        dialogue_text = dialogue["text"].replace(" ", "").replace("　", "")
+        # Normalize script text
+        script_text_norm = normalize_for_matching(dialogue["text"])
+        
+        if not script_text_norm:
+            # Skip empty dialogues
+            continue
 
         # Find best match in transcription
         best_match_start = None
@@ -129,23 +200,29 @@ def align_script_with_whisper_transcription(
         best_idx = current_segment_idx
 
         # Search through segments to find this dialogue
-        for j in range(current_segment_idx, len(whisper_segments)):
-            # Build a window of text from segments
+        # Look ahead up to 300 segments (to find long dialogues)
+        max_lookahead = min(current_segment_idx + 300, len(normalized_segments))
+        
+        for j in range(current_segment_idx, max_lookahead):
             window_text = ""
-            window_start = whisper_segments[j]["start"]
-            window_end = whisper_segments[j]["end"]
+            window_start = normalized_segments[j]["start"]
+            
+            # Build window
+            for k in range(j, min(j + 100, len(normalized_segments))):
+                window_text += normalized_segments[k]["text"]
+                window_end = normalized_segments[k]["end"]
 
-            # Look ahead to build enough text
-            for k in range(j, min(j + 200, len(whisper_segments))):
-                window_text += whisper_segments[k]["text"].replace(" ", "")
-                window_end = whisper_segments[k]["end"]
-
-                # Calculate similarity (ignore whitespace)
-                similarity = SequenceMatcher(
-                    None,
-                    dialogue_text,
-                    window_text
-                ).ratio()
+                # Calculate similarity
+                # We use a faster similarity check first
+                if abs(len(window_text) - len(script_text_norm)) > 50 and len(window_text) > len(script_text_norm) + 20:
+                    # Window getting too long, stop this inner loop
+                    break
+                
+                similarity = SequenceMatcher(None, script_text_norm, window_text).quick_ratio()
+                
+                if similarity > 0.6:
+                    # High enough to be a candidate, do full ratio
+                    similarity = SequenceMatcher(None, script_text_norm, window_text).ratio()
 
                 if similarity > best_similarity:
                     best_similarity = similarity
@@ -153,20 +230,14 @@ def align_script_with_whisper_transcription(
                     best_match_end = window_end
                     best_idx = k
 
-                    # If excellent match, stop searching
-                    if similarity > 0.85:
+                    if similarity > 0.9:
                         break
 
-                # Stop if window is much longer than dialogue
-                if len(window_text) > len(dialogue_text) * 2:
-                    break
-
-            # If good match found, move to next dialogue
-            if best_similarity > 0.65:
-                current_segment_idx = best_idx + 1
+            if best_similarity > 0.8:
                 break
 
-        if best_match_start is not None and best_similarity > 0.5:
+        # Decision threshold
+        if best_similarity > 0.4:
             aligned_data.append({
                 "speaker": dialogue["speaker"],
                 "text": dialogue["text"],
@@ -174,11 +245,13 @@ def align_script_with_whisper_transcription(
                 "end": best_match_end,
                 "confidence": best_similarity
             })
+            current_segment_idx = best_idx + 1
         else:
             # Fallback: estimate based on previous timing
             if aligned_data:
                 last_end = aligned_data[-1]["end"]
-                duration = len(dialogue_text) / 7.0
+                # Use normalized text length for estimation
+                duration = len(script_text_norm) / 7.0
                 aligned_data.append({
                     "speaker": dialogue["speaker"],
                     "text": dialogue["text"],
@@ -188,7 +261,7 @@ def align_script_with_whisper_transcription(
                 })
             else:
                 # First dialogue, start from 0
-                duration = len(dialogue_text) / 7.0
+                duration = len(script_text_norm) / 7.0
                 aligned_data.append({
                     "speaker": dialogue["speaker"],
                     "text": dialogue["text"],

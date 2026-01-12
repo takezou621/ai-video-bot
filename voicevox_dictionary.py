@@ -139,6 +139,46 @@ ESSENTIAL_DICTIONARY: List[DictionaryEntry] = [
     DictionaryEntry("OKR", "オーケーアール", 5),
 ]
 
+# マッチング専用辞書（VOICEVOX登録は不要だが、Whisperとの照合用に読みが必要な単語）
+# 例: Google -> グーグル (Whisper出力) vs Google (スクリプト)
+MATCHING_ONLY_DICTIONARY: List[DictionaryEntry] = [
+    DictionaryEntry("Google", "グーグル", 1),
+    DictionaryEntry("YouTube", "ユーチューブ", 4),
+    DictionaryEntry("Amazon", "アマゾン", 2),
+    DictionaryEntry("Microsoft", "マイクロソフト", 4),
+    DictionaryEntry("Facebook", "フェイスブック", 4),
+    DictionaryEntry("Apple", "アップル", 1),
+    DictionaryEntry("Netflix", "ネットフリックス", 4),
+    DictionaryEntry("Twitter", "ツイッター", 4),
+    DictionaryEntry("X", "エックス", 1),
+    DictionaryEntry("Instagram", "インスタグラム", 4),
+    DictionaryEntry("TikTok", "ティックトック", 4),
+    DictionaryEntry("NVIDIA", "エヌビディア", 4),
+    DictionaryEntry("Windows", "ウィンドウズ", 4),
+    DictionaryEntry("Mac", "マック", 1),
+    DictionaryEntry("Linux", "リナックス", 1),
+    DictionaryEntry("Android", "アンドロイド", 4),
+    DictionaryEntry("iOS", "アイオーエス", 5),
+    DictionaryEntry("Chrome", "クローム", 2),
+    DictionaryEntry("Safari", "サファリ", 2),
+    DictionaryEntry("Edge", "エッジ", 1),
+    DictionaryEntry("Firefox", "ファイアーフォックス", 4),
+    DictionaryEntry("Python", "パイソン", 1),
+    DictionaryEntry("Java", "ジャバ", 1),
+    DictionaryEntry("Ruby", "ルビー", 1),
+    DictionaryEntry("PHP", "ピーエイチピー", 5),
+    DictionaryEntry("Go", "ゴー", 1),
+    DictionaryEntry("Rust", "ラスト", 1),
+    DictionaryEntry("Swift", "スイフト", 1),
+    DictionaryEntry("Kotlin", "コトリン", 1),
+    DictionaryEntry("TypeScript", "タイプスクリプト", 4),
+    DictionaryEntry("Docker", "ドッカー", 1),
+    DictionaryEntry("Kubernetes", "クバネティス", 4),
+    DictionaryEntry("AWS", "エーダブリューエス", 7),
+    DictionaryEntry("Azure", "アジュール", 2),
+    DictionaryEntry("GCP", "ジーシーピー", 5),
+]
+
 
 def get_current_dictionary() -> Dict:
     """現在のユーザー辞書を取得"""
@@ -227,15 +267,31 @@ def initialize_dictionary(force: bool = False) -> Tuple[int, int]:
     skipped = 0
 
     for entry in ESSENTIAL_DICTIONARY:
-        # 既に登録済みかチェック
-        if entry.surface.lower() in existing_surfaces:
-            skipped += 1
-            continue
+        # Generate variations: Original, UPPERCASE, lowercase
+        variations = {entry.surface, entry.surface.upper(), entry.surface.lower()}
+        
+        for surface in variations:
+            # Check if this variation is already registered
+            if surface.lower() in existing_surfaces:
+                continue
 
-        # 登録
-        uuid = add_word(entry)
-        if uuid:
-            added += 1
+            # Create entry with this surface
+            new_entry = DictionaryEntry(
+                surface=surface,
+                pronunciation=entry.pronunciation,
+                accent_type=entry.accent_type,
+                word_type=entry.word_type,
+                priority=entry.priority
+            )
+
+            # Register
+            uuid = add_word(new_entry)
+            if uuid:
+                added += 1
+                # Mark as registered to avoid re-adding same lower-normalized word in this loop
+                existing_surfaces.add(surface.lower())
+            else:
+                skipped += 1  # Failed or skipped
 
     _initialized = True
 

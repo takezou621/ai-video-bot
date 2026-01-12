@@ -106,7 +106,9 @@ def _generate_with_voicevox(dialogues: List[Dict], output_path: Path) -> Tuple[P
     print("[TTS] Using VOICEVOX for synthesis...")
 
     chunk_paths = []
+    chunks_metadata = []
     timing_data = []
+    successful_dialogues = []
     current_time = 0.0
 
     # P0 Fix: Use persistent chunks directory for idempotency
@@ -116,38 +118,68 @@ def _generate_with_voicevox(dialogues: List[Dict], output_path: Path) -> Tuple[P
     for idx, dialogue in enumerate(dialogues):
         text = dialogue.get("text", "").strip()
         speaker = dialogue.get("speaker", "男性")
-
+        
+        # Create a hash of the text to ensure audio matches content
+        import hashlib
+        text_hash = hashlib.md5(text.encode('utf-8')).hexdigest()[:8]
+        
         # Role-based mapping (Main/Sub)
         speaker_role = "sub" if speaker in ["女性", "B", "Female", "Sub"] else "main"
 
         # Consistent naming for idempotency
+        # Include hash in filename or use sidecar file to verify
         chunk_filename = f"chunk_{idx:04d}.wav"
         chunk_path = chunks_dir / chunk_filename
+        hash_path = chunks_dir / f"chunk_{idx:04d}.hash"
 
-        # Idempotency: Check if chunk already exists
-        if chunk_path.exists() and chunk_path.stat().st_size > 0:
-            # print(f"[TTS] Skipping existing chunk {idx}")
+        # Idempotency: Check if chunk already exists AND matches the text hash
+        is_valid_cache = False
+        if chunk_path.exists() and chunk_path.stat().st_size > 0 and hash_path.exists():
+            with open(hash_path, "r") as f:
+                cached_hash = f.read().strip()
+                if cached_hash == text_hash:
+                    is_valid_cache = True
+
+        if is_valid_cache:
+            # print(f"[TTS] Reusing valid chunk {idx}")
             result = chunk_path
         else:
+            # print(f"[TTS] Generating fresh chunk {idx}")
             result = voicevox_client.generate_voice(
                 text,
                 chunk_path,
                 speaker_role=speaker_role,
             )
+            # Save the hash for future verification
+            if result:
+                with open(hash_path, "w") as f:
+                    f.write(text_hash)
 
         if result:
             duration = voicevox_client.get_audio_duration(chunk_path)
-            timing_data.append({
-                "chunk_id": chunk_filename,  # P0 Fix: Link chunk ID
+            # Metadata for this successful chunk
+            chunk_meta = {
+                "chunk_id": chunk_filename,
                 "speaker": speaker,
                 "text": dialogue.get("original_text", text),
                 "start": current_time,
                 "end": current_time + duration,
+            }
+            chunks_metadata.append(chunk_meta)
+            timing_data.append(chunk_meta)
+            
+            # For Whisper alignment, we need the ORIGINAL text for subtitles,
+            # but we also need to keep the normalized text for audio matching if needed.
+            # Whisper alignment uses 'text' field for the final subtitle content.
+            successful_dialogues.append({
+                "speaker": speaker,
+                "text": dialogue.get("original_text", text),
             })
+            
             current_time += duration
             chunk_paths.append(chunk_path)
         else:
-            print(f"[TTS] Warning: Failed to generate chunk {idx}")
+            print(f"[TTS] Warning: Failed to generate chunk {idx} - SKIPPING")
 
     if not chunk_paths:
         print("[TTS] No chunks generated, falling back to gTTS")
@@ -158,7 +190,7 @@ def _generate_with_voicevox(dialogues: List[Dict], output_path: Path) -> Tuple[P
 
     final_mp3, adjusted_timing = master_episode(
         chunk_paths=chunk_paths,
-        chunks_metadata=[{"speaker": d["speaker"], "text": d.get("original_text", d["text"])} for d in dialogues],
+        chunks_metadata=chunks_metadata,
         output_dir=output_path.parent,
         episode_id=0,
         normalize=True,
@@ -174,11 +206,14 @@ def _generate_with_voicevox(dialogues: List[Dict], output_path: Path) -> Tuple[P
 
     # P0 Fix: DO NOT delete chunks. Keep them for retry/debugging.
     
-    # P0 Fix: Skip global Whisper alignment to avoid cumulative drift for long videos.
-    # We now trust the precise timing from audio_mastering (derived from chunk durations).
-    # timing_result = _get_accurate_timing(dialogues, final_mp3, adjusted_timing)
-    print("[TTS] Skipping global Whisper alignment to prevent drift (using precise chunk timing)")
-    timing_result = adjusted_timing
+    # Get accurate timing using Whisper STT (or fallback to calculated timing)
+    # This fixes sync issues caused by crossfading/mastering duration changes
+    print("[TTS] Aligning subtitles with final audio...")
+    if USE_WHISPER_STT or USE_ELEVENLABS_STT:
+        timing_result = _get_accurate_timing(successful_dialogues, final_mp3, adjusted_timing)
+    else:
+        print("[TTS] Using calculated timing (Whisper disabled)")
+        timing_result = adjusted_timing
     
     # Add chunk_ids back to timing result if lost during mastering adjustment
     # (Assuming simple 1:1 mapping for now, though mastering might shift things)
