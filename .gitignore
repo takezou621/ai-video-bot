@@ -47,4 +47,12 @@ raw_audio.pcm
 # Test / generation outputs
 test_output/
 nanobanana-output/
+
+# API key state files (runtime state, not config)
+.api_key_state_*.json
+
+# Sample output files (generated content)
+sample_improved_script.json
+
+# Google service account (credentials)
 service_account.json

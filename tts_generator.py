@@ -10,6 +10,7 @@ import json
 import subprocess
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
+from api_key_manager import get_api_key, report_api_success, report_api_failure
 
 import voicevox_client
 import text_normalizer
@@ -51,18 +52,24 @@ else:
     print("[TTS] Subtitle timing: Duration estimation")
 
 
-def generate_dialogue_audio(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[Dict]]:
+def generate_dialogue_audio(
+    dialogues: List[Dict], 
+    output_path: Path,
+    section_indices: List[int] = None
+) -> Tuple[Path, List[Dict]]:
     """
     Generate podcast-style dialogue audio.
 
     Args:
         dialogues: List of {"speaker": "A/B/男性/女性", "text": "..."}
         output_path: Path to save the audio file
+        section_indices: Optional list of dialogue indices where a new section starts
 
     Returns:
         Tuple of (audio_path, timing_data for subtitles)
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    section_indices = section_indices or []
 
     # Normalize all dialogues first
     normalized_dialogues = []
@@ -109,7 +116,7 @@ def _generate_with_voicevox(dialogues: List[Dict], output_path: Path) -> Tuple[P
     for idx, dialogue in enumerate(dialogues):
         text = dialogue.get("text", "").strip()
         speaker = dialogue.get("speaker", "男性")
-        
+
         # Role-based mapping (Main/Sub)
         speaker_role = "sub" if speaker in ["女性", "B", "Female", "Sub"] else "main"
 

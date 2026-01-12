@@ -28,3 +28,4 @@ unidic-lite>=1.0.8
 
 # RSS Feed Parsing (Phase 4)
 feedparser>=6.0.10
+alkana

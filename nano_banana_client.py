@@ -12,15 +12,53 @@ import sd_client
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 USE_NANO_BANANA_PRO = os.getenv("USE_NANO_BANANA_PRO", "false").lower() == "true"
 USE_STABLE_DIFFUSION = os.getenv("USE_STABLE_DIFFUSION", "false").lower() == "true"
+USE_COMFYUI = os.getenv("USE_COMFYUI", "true").lower() == "true"  # Default enabled
+
+# Lazy import for ComfyUI client
+_comfyui_client = None
+
+def _get_comfyui_client():
+    """Lazy load ComfyUI client to avoid import errors if not needed."""
+    global _comfyui_client
+    if _comfyui_client is None:
+        try:
+            import comfyui_client
+            _comfyui_client = comfyui_client
+        except ImportError:
+            _comfyui_client = False
+    return _comfyui_client if _comfyui_client else None
 
 def generate_image(prompt, out_path: Path, max_retries=3, model=None):
     """
-    Generate an image using the configured provider (Stable Diffusion > Nano Banana Pro > OpenAI DALL-E).
+    Generate an image using the configured provider.
+    Priority: ComfyUI > Stable Diffusion WebUI > Nano Banana Pro > OpenAI DALL-E
     """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # 1. Try Stable Diffusion (Local)
+    # 1. Try ComfyUI (Local, highest priority)
+    if USE_COMFYUI:
+        comfyui = _get_comfyui_client()
+        if comfyui and comfyui.is_available():
+            print(f"[ComfyUI] Generating image for prompt: {prompt[:50]}...")
+            # Use 16:9 aspect ratio
+            width = 1152
+            height = 640
+            result = comfyui.generate_image(
+                prompt=prompt,
+                output_path=out_path,
+                width=width,
+                height=height,
+                steps=20,
+                cfg=7.0
+            )
+            if result:
+                return result
+            print("[ComfyUI] Generation failed, falling back...")
+        else:
+            print("[ComfyUI] Not available, skipping...")
+
+    # 2. Try Stable Diffusion WebUI (Local)
     if USE_STABLE_DIFFUSION:
         if sd_client.is_available():
             print(f"[SD] Generating image for prompt: {prompt[:50]}...")
@@ -34,13 +72,13 @@ def generate_image(prompt, out_path: Path, max_retries=3, model=None):
         else:
             print("[SD] WebUI not reachable, skipping...")
 
-    # 2. Try Nano Banana Pro (Gemini CLI)
+    # 3. Try Nano Banana Pro (Gemini CLI)
     if USE_NANO_BANANA_PRO:
         result = _generate_with_nano_banana_pro(prompt, out_path)
         if result:
             return result
 
-    # 3. Fallback to OpenAI DALL-E
+    # 4. Fallback to OpenAI DALL-E
     return _generate_with_openai(prompt, out_path, max_retries, model)
 
 def _generate_with_openai(prompt, out_path, max_retries, model):
