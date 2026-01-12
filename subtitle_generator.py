@@ -27,7 +27,7 @@ BG_COLOR = '&H14141E'    # Dark blue background (approximate)
 VERTICAL_MARGIN = 280
 
 # Text wrapping settings
-MAX_CHARS_PER_LINE = 26  # Max characters per line (adjusted for font size 64)
+MAX_CHARS_PER_LINE = 20  # Reduced from 26 to prevent cutoff with outline
 MAX_LINES = 2  # Maximum number of lines per subtitle
 
 
@@ -35,12 +35,11 @@ def _wrap_text(text: str, max_chars: int = MAX_CHARS_PER_LINE, max_lines: int = 
     """
     Wrap text into multiple lines for subtitle display.
     Uses \\N for ASS subtitle line breaks.
-    Limited to max_lines (default 2) to prevent overflow.
-
+    
     Args:
         text: Original text
         max_chars: Maximum characters per line
-        max_lines: Maximum number of lines (default 2)
+        max_lines: Maximum number of lines (soft limit, will exceed if text is too long)
 
     Returns:
         Text with \\N line breaks inserted
@@ -56,9 +55,8 @@ def _wrap_text(text: str, max_chars: int = MAX_CHARS_PER_LINE, max_lines: int = 
     # Particles that shouldn't start a new line
     no_start_chars = 'はがのをにでとへもやかな'
 
-    while remaining and len(lines) < max_lines:
-        if len(remaining) <= max_chars or len(lines) == max_lines - 1:
-            # Last allowed line - take all remaining text
+    while remaining:
+        if len(remaining) <= max_chars:
             lines.append(remaining)
             break
 
@@ -122,9 +120,9 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 ; Main Speaker Style (Blue accent)
-Style: MainSpeaker,Noto Sans CJK JP,{FONT_SIZE},&HFFFFFF,&H000000,{MAIN_COLOR},&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,100,100,{VERTICAL_MARGIN},1
+Style: MainSpeaker,Noto Sans CJK JP,{FONT_SIZE},&HFFFFFF,&H000000,{MAIN_COLOR},&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,120,120,{VERTICAL_MARGIN},1
 ; Sub Speaker Style (Pink accent)
-Style: SubSpeaker,Noto Sans CJK JP,{FONT_SIZE},&HFFFFFF,&H000000,{SUB_COLOR},&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,100,100,{VERTICAL_MARGIN},1
+Style: SubSpeaker,Noto Sans CJK JP,{FONT_SIZE},&HFFFFFF,&H000000,{SUB_COLOR},&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,120,120,{VERTICAL_MARGIN},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

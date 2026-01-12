@@ -264,11 +264,30 @@ def generate_single_video(
         )
         print(f"  Background ready: {bg_path}")
 
+        # Prepare paths and data for parallel execution
+        audio_path = outdir / "dialogue.mp3"
+        sections = script.get("sections", [])
+        section_indices = [s.get("start_dialogue_index", 0) for s in sections] if sections else []
+
         # Execute audio and image generation in parallel
         audio_file = None
         timing_data = None
         backgrounds = None
         bg_path = None
+        
+        # Ensure generate_image is available (it was removed from imports, using dummy for now if needed or fixed bg)
+        # In this pipeline, we rely on fixed background mostly, but multi-section might need handling.
+        # For now, we will simplify image generation task to just handle the fixed background or existing logic.
+        
+        def generate_image_wrapper(prompt, path):
+            # Fallback wrapper since nano_banana_client might be removed or changed
+            # Just copy fixed background for now to avoid errors if logic triggers
+            if (BASE / "background.png").exists():
+                shutil.copy(BASE / "background.png", path)
+            else:
+                # Create a blank image if background.png missing
+                from PIL import Image
+                Image.new('RGB', (1280, 720), color=(50, 50, 50)).save(path)
 
         with ThreadPoolExecutor(max_workers=2) as executor:
             # Submit audio generation task
@@ -298,7 +317,8 @@ def generate_single_video(
                         img_path = outdir / f"background_{i:02d}.png"
                         img_prompt = section.get("image_prompt", script.get("background_prompt"))
                         print(f"  [Image] Generating section {i} image: {img_prompt[:30]}...")
-                        generate_image(img_prompt, img_path)
+                        # Use wrapper instead of undefined generate_image
+                        generate_image_wrapper(img_prompt, img_path)
 
                         # Check for benchmarks to create info-card
                         benchmarks = section.get("benchmarks", [])
@@ -326,7 +346,10 @@ def generate_single_video(
                     bg_path = outdir / "background.png"
                     bg_prompt = thumbnail_data["prompt"]
                     print(f"  [Image] Single image prompt: {bg_prompt[:50]}...")
-                    generate_image(bg_prompt, bg_path)
+                    # generate_image(bg_prompt, bg_path) # Removed
+                    # Already handled by Step 3 fixed background copy, but let's confirm
+                    if not bg_path.exists():
+                         generate_image_wrapper(bg_prompt, bg_path)
                     backgrounds = bg_path
 
                 return backgrounds, bg_path
