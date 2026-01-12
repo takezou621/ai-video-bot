@@ -31,7 +31,7 @@ except ImportError:
     print("FFmpeg maker not found, falling back to legacy")
     from video_maker import make_podcast_video
 
-from nano_banana_client import generate_image
+# nano_banana_client.generate_image is no longer used - fixed background.png is used instead
 from notifications import (
     notify_video_start,
     notify_video_complete,
@@ -240,21 +240,25 @@ def generate_single_video(
             json.dump(script, open(outdir / "script.json", "w", encoding="utf-8"),
                       ensure_ascii=False, indent=2)
 
-        # Step 3: Generate background image
-        print("\n[3/10] 🎨 Generating background image with optimized prompt...")
+        # Step 3: Use fixed background image (AI generation no longer needed)
+        print("\n[3/10] 🖼️  Using fixed background image...")
         bg_path = outdir / "background.png"
-        
-        # Generate optimized prompt and thumbnail data
+
+        # Copy fixed background from project root
+        fixed_bg = BASE / "background.png"
+        if fixed_bg.exists():
+            shutil.copy(fixed_bg, bg_path)
+            print(f"  Copied: {fixed_bg} → {bg_path}")
+        else:
+            raise FileNotFoundError(f"Fixed background image not found: {fixed_bg}")
+
+        # Generate thumbnail data for later use (prompt not used for image generation)
         thumbnail_data = generate_thumbnail_prompt(
             title=script["title"],
             topic_category=topic_category,
             thumbnail_text=script.get("thumbnail_text")
         )
-        bg_prompt = thumbnail_data["prompt"]
-        print(f"  Prompt: {bg_prompt[:50]}...")
-        
-        generate_image(bg_prompt, bg_path)
-        print(f"  Background saved: {bg_path}")
+        print(f"  Background ready: {bg_path}")
 
         # Step 4: Generate audio with dialogue
         print("\n[4/10] 🎙️  Generating dialogue audio with Gemini TTS...")

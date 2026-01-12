@@ -4,12 +4,6 @@ services:
     deploy: {}
     depends_on: []
 
-  ollama:
-    deploy: {}
-
   voicevox:
     image: voicevox/voicevox_engine:cpu-ubuntu20.04-latest
-    deploy: {}
-
-  stable-diffusion:
     deploy: {}

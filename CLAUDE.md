@@ -92,12 +92,10 @@ docker compose build
 - When enabled, takes priority over Spreadsheet input and AI generation
 - Automatically converts Host A → 男性 (田中太郎), Host B → 女性 (佐藤花子)
 
-**Image Generation Settings:**
-- `USE_NANO_BANANA_PRO`: Use local Nano Banana Pro instead of DALL-E (true/false, default: false)
-- `NANO_BANANA_PRO_BIN`: Path to nanobanana binary (default: nanobanana)
-- `NANO_BANANA_PRO_STYLE`: Style preset (default: cinematic-newsroom)
-- `NANO_BANANA_PRO_WIDTH`: Image width (default: 1792)
-- `NANO_BANANA_PRO_HEIGHT`: Image height (default: 1024)
+**Background Image:**
+- The system now uses a fixed background image (`background.png` in project root)
+- AI image generation (DALL-E 3 / Nano Banana Pro) is no longer used for video backgrounds
+- The fixed background is copied to each video output directory automatically
 
 ## Architecture
 
@@ -122,7 +120,7 @@ The advanced pipeline provides complete automation from topic discovery to YouTu
 1. **Web Search** (`web_search.py`): Discovers trending topics via Serper API
 2. **Topic Selection** (`web_search.py`): Gemini analyzes and selects optimal topic
 3. **Script Generation** (`claude_generator.py`): Gemini 3.0 Flash creates template-driven dialogue
-4. **Image Generation** (`nano_banana_client.py`): DALL-E 3 or Nano Banana Pro creates Lo-fi anime backgrounds
+4. **Background Setup**: Copies fixed `background.png` from project root (AI generation no longer used)
 5. **Audio Generation** (`tts_generator.py`): Gemini TTS (2.5 Flash/Pro) produces podcast-style audio
 6. **Video Assembly** (`video_maker.py` / `video_maker_moviepy.py`): FFmpeg/MoviePy combines audio + background + subtitles
 7. **Metadata Generation** (`metadata_generator.py`): Template-based SEO-optimized titles/descriptions with Gemini enhancement
@@ -182,7 +180,7 @@ outputs/YYYY-MM-DD/video_NNN/
 
 ### Primary Services (Required)
 - **Gemini API** (Google): Script generation, topic selection, metadata creation, TTS audio generation
-- **OpenAI API**: DALL-E 3 background image generation (or Nano Banana Pro for local generation)
+- **Fixed Background Image**: `background.png` in project root (no API required)
 
 ### Optional Services
 - **Serper API**: Web search for trending topics (fallback topics available if missing)
@@ -197,7 +195,7 @@ The system gracefully degrades when APIs are unavailable:
 - Gemini unavailable → Uses hardcoded fallback topics and basic script templates
 - Gemini TTS unavailable → Falls back to gTTS (Google Text-to-Speech, lower quality)
 - Web search unavailable → Uses predefined fallback topics from `llm_story.py`
-- DALL-E unavailable → Can use Nano Banana Pro (local) if configured
+- Background image → Uses fixed `background.png` (no API fallback needed)
 - Whisper/ElevenLabs STT unavailable → Falls back to timing estimation (80-90% accuracy)
 - YouTube upload unavailable → Continues without upload (video saved locally)
 - All services have hardcoded fallbacks to ensure generation never fails completely
@@ -379,12 +377,12 @@ Whisper STT configuration:
 Approximate costs for 4 videos/day (10 minutes each):
 - Gemini API (Script/Metadata): ~¥2,000/month
 - Gemini TTS: ~¥1,500/month
-- DALL-E 3: ~¥3,600/month (or FREE with Nano Banana Pro local generation)
+- Background Image: **¥0/month (fixed image, no API)**
 - Serper API: ~¥500/month
 - Whisper STT: **¥0/month (100% FREE, local)**
 - ElevenLabs STT (optional): ~¥1,200/month if used
-- **Total (with Whisper)**: ~¥7,600/month (~$50-60 USD)
-- **Total (with ElevenLabs)**: ~¥8,800/month (~$60-70 USD)
+- **Total (with Whisper)**: ~¥4,000/month (~$25-30 USD)
+- **Total (with ElevenLabs)**: ~¥5,200/month (~$35-40 USD)
 
 Per the Zenn article case study, advertising revenue exceeded API costs after reaching monetization thresholds.
 

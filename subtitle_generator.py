@@ -10,8 +10,8 @@ import datetime
 VIDEO_WIDTH = 1920
 VIDEO_HEIGHT = 1080
 
-# Subtitle styling matches video_maker_moviepy.py
-FONT_SIZE = 52
+# Subtitle styling - optimized for smartphone viewing
+FONT_SIZE = 64  # Larger for better readability on mobile
 MAIN_COLOR = '&HFFC878'  # #78C8FF (BGR format for ASS)
 SUB_COLOR = '&HB496FF'   # #FF96B4 (BGR format for ASS)
 TEXT_COLOR = '&HFFFFFF'  # White
@@ -23,7 +23,65 @@ BG_COLOR = '&H14141E'    # Dark blue background (approximate)
 # In ASS, alignment 2 (bottom center) uses vertical margin
 # 1080 - 680 (top) - 120 (height/2 roughly) = ~340 margin from bottom
 # Adjusting to match visual appearance:
-VERTICAL_MARGIN = 280 
+# Font 52px, max 2 lines = ~130px height, margin 280px = safe
+VERTICAL_MARGIN = 280
+
+# Text wrapping settings
+MAX_CHARS_PER_LINE = 26  # Max characters per line (adjusted for font size 64)
+MAX_LINES = 2  # Maximum number of lines per subtitle
+
+
+def _wrap_text(text: str, max_chars: int = MAX_CHARS_PER_LINE, max_lines: int = MAX_LINES) -> str:
+    """
+    Wrap text into multiple lines for subtitle display.
+    Uses \\N for ASS subtitle line breaks.
+    Limited to max_lines (default 2) to prevent overflow.
+
+    Args:
+        text: Original text
+        max_chars: Maximum characters per line
+        max_lines: Maximum number of lines (default 2)
+
+    Returns:
+        Text with \\N line breaks inserted
+    """
+    if len(text) <= max_chars:
+        return text
+
+    lines = []
+    remaining = text
+
+    # Japanese break points (prefer splitting after these)
+    break_chars = '。、！？）」』】・'
+    # Particles that shouldn't start a new line
+    no_start_chars = 'はがのをにでとへもやかな'
+
+    while remaining and len(lines) < max_lines:
+        if len(remaining) <= max_chars or len(lines) == max_lines - 1:
+            # Last allowed line - take all remaining text
+            lines.append(remaining)
+            break
+
+        # Find best break point within max_chars
+        best_break = max_chars
+
+        # Look for punctuation break points
+        for i in range(max_chars - 1, max_chars // 2, -1):
+            if i < len(remaining) and remaining[i] in break_chars:
+                best_break = i + 1
+                break
+        else:
+            # No punctuation found, avoid breaking before particles
+            for i in range(max_chars - 1, max_chars // 2, -1):
+                if i < len(remaining) and remaining[i] not in no_start_chars:
+                    best_break = i
+                    break
+
+        lines.append(remaining[:best_break])
+        remaining = remaining[best_break:]
+
+    return "\\N".join(lines)
+
 
 def _time_to_ass_format(seconds: float) -> str:
     """Convert seconds to ASS time format H:MM:SS.cs"""
@@ -64,9 +122,9 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 ; Main Speaker Style (Blue accent)
-Style: MainSpeaker,Noto Sans CJK JP,52,&HFFFFFF,&H000000,{MAIN_COLOR},&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,100,100,{VERTICAL_MARGIN},1
+Style: MainSpeaker,Noto Sans CJK JP,{FONT_SIZE},&HFFFFFF,&H000000,{MAIN_COLOR},&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,100,100,{VERTICAL_MARGIN},1
 ; Sub Speaker Style (Pink accent)
-Style: SubSpeaker,Noto Sans CJK JP,52,&HFFFFFF,&H000000,{SUB_COLOR},&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,100,100,{VERTICAL_MARGIN},1
+Style: SubSpeaker,Noto Sans CJK JP,{FONT_SIZE},&HFFFFFF,&H000000,{SUB_COLOR},&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,100,100,{VERTICAL_MARGIN},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -79,7 +137,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         end_time = _time_to_ass_format(segment["end"])
         
         speaker = segment.get("speaker", "男性")
-        text = segment.get("text", "").replace("\n", "\\N")
+        raw_text = segment.get("text", "").replace("\n", "")
+        text = _wrap_text(raw_text)  # Apply automatic line wrapping
         
         # Determine style based on speaker role
         # Main: 男性, A, Main
