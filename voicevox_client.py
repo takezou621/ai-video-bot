@@ -115,10 +115,18 @@ def reset_metrics() -> None:
 
 
 def is_available() -> bool:
-    """Check if VOICEVOX engine is reachable."""
+    """Check if VOICEVOX engine is reachable and initialize dictionary."""
     try:
         response = requests.get(f"{VOICEVOX_URL}/speakers", timeout=5)
-        return response.status_code == 200
+        if response.status_code == 200:
+            # Initialize user dictionary for proper pronunciation
+            try:
+                from voicevox_dictionary import ensure_dictionary_initialized
+                ensure_dictionary_initialized()
+            except Exception as e:
+                print(f"[VOICEVOX] Dictionary init warning: {e}")
+            return True
+        return False
     except Exception:
         return False
 
