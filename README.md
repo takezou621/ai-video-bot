@@ -43,9 +43,9 @@
    - エンゲージメント重視の対話
 
 5. **🎭 男性・女性の対話形式**
-   - 男性ホスト（30代後半、知識豊富で落ち着いた語り口）
-   - 女性ホスト（20代後半、好奇心旺盛で明るい）
-   - 異なる声色で自然な会話（Gemini TTS Speaker 1/2）
+   - メインナレーター（もち子さん：落ち着いた語り口）
+   - サブナレーター（四国めたん：明るく元気）
+   - VOICEVOX Engineで高品質な日本語音声（完全無料）
    - 字幕カラーコーディング（男性:青、女性:ピンク）
 
 6. **📊 完全自動化メタデータ**
@@ -69,9 +69,9 @@
    - テンプレート構造に基づく自然な会話
 
 3. **🎙️ 自然な音声合成**
-   - Google Gemini 2.5 TTS（最新2025年12月モデル対応）⭐NEW
-   - Flash（高速・低コスト）/ Pro（高品質）から選択可能
-   - 複数話者の対話に完全対応（Zephyr/Breezeボイス）
+   - **VOICEVOX Engine**（Docker常駐・完全無料）⭐推奨
+   - もち子さん（メイン）/ 四国めたん（サブ）の掛け合い
+   - フォールバック: Gemini TTS / gTTS
 
 4. **🎬 プロ品質の動画生成**
    - FFmpeg + MoviePyのハイブリッドレンダリング
@@ -104,21 +104,191 @@
 
 ## 🏗️ システムアーキテクチャ
 
-### 10ステップの完全自動化パイプライン
+### AIニュース動画生成フロー図
+
+```mermaid
+flowchart TB
+    subgraph Input["📥 入力ソース"]
+        A1[🌐 Web検索<br/>Serper API]
+        A2[📋 Podcast API<br/>外部シナリオ]
+        A3[📊 Spreadsheet<br/>Google Sheets]
+    end
+
+    subgraph ContentGen["🤖 コンテンツ生成"]
+        B1[🎯 トピック選定<br/>Gemini 3.0 Flash]
+        B2[✍️ 台本生成<br/>Gemini 3.0 Flash<br/>+ テンプレート]
+    end
+
+    subgraph AssetGen["🎨 素材生成"]
+        C1[🎙️ 音声合成<br/>VOICEVOX Engine<br/>Docker API]
+        C2[🖼️ 背景画像<br/>固定画像<br/>background.png]
+        C3[📝 字幕タイミング<br/>Whisper STT<br/>ローカル・無料]
+    end
+
+    subgraph VideoGen["🎬 動画生成"]
+        D1[🎞️ 動画合成<br/>FFmpeg + MoviePy]
+        D2[🖼️ サムネイル<br/>PIL + テンプレート]
+    end
+
+    subgraph MetaGen["📊 メタデータ生成"]
+        E1[📋 タイトル・説明文<br/>SEO最適化]
+        E2[🏷️ タグ生成<br/>15-20個]
+        E3[💬 コメント生成<br/>5ペルソナ]
+    end
+
+    subgraph QA["✅ 品質保証"]
+        F1[🔍 プリフライト検証<br/>動画・サムネ・メタデータ]
+    end
+
+    subgraph Output["📤 出力"]
+        G1[💾 ローカル保存<br/>outputs/YYYY-MM-DD/]
+        G2[📺 YouTube投稿<br/>Data API v3]
+        G3[📢 Slack通知]
+    end
+
+    %% Flow connections
+    A1 --> B1
+    A2 --> B2
+    A3 --> B2
+    B1 --> B2
+
+    B2 --> C1
+    B2 --> C2
+    C1 --> C3
+
+    C1 --> D1
+    C2 --> D1
+    C3 --> D1
+    B2 --> D2
+
+    D1 --> E1
+    D1 --> E2
+    D1 --> E3
+
+    D1 --> F1
+    D2 --> F1
+    E1 --> F1
+
+    F1 --> G1
+    F1 --> G2
+    F1 --> G3
+
+    %% Styling
+    style A1 fill:#e3f2fd,stroke:#1976d2
+    style A2 fill:#e3f2fd,stroke:#1976d2
+    style A3 fill:#e3f2fd,stroke:#1976d2
+    style B1 fill:#e8f5e9,stroke:#388e3c
+    style B2 fill:#e8f5e9,stroke:#388e3c
+    style C1 fill:#fff3e0,stroke:#f57c00
+    style C2 fill:#fce4ec,stroke:#c2185b
+    style C3 fill:#f3e5f5,stroke:#7b1fa2
+    style D1 fill:#e0f7fa,stroke:#0097a7
+    style D2 fill:#e0f7fa,stroke:#0097a7
+    style F1 fill:#ffebee,stroke:#c62828
+    style G2 fill:#ffcdd2,stroke:#d32f2f
+```
+
+### 処理フロー詳細
 
 ```
-1.  Web Search      → トレンドトピック検索・選定 (Serper + Gemini)
-2.  Script Gen      → テンプレート構造で台本生成 (Gemini 3.0 Flash)
-3.  Image Gen       → 背景画像生成 (DALL-E 3)
-4.  Audio Gen       → 音声生成 (Gemini TTS)
-5.  Video Gen       → 高品質動画合成 (FFmpeg + MoviePy) ⭐
-6.  Metadata Gen    → SEO最適化メタデータ (Gemini + Templates) ⭐
-7.  Comments Gen    → エンゲージメントコメント (5 Personas) ⭐
-8.  Thumbnail Gen   → サムネイル生成
-9.  Pre-flight Check → 動画/サムネ/タイムスタンプの自動検証 ⭐NEW
-10. Tracking        → Google Sheets / JSON ログ記録
-11. YouTube Upload  → 自動YouTube投稿 (YouTube Data API v3) ⭐NEW
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        AI ニュース動画生成パイプライン                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐                  │
+│  │ 📥 入力ソース │    │ 🤖 AI処理    │    │ 📤 出力      │                  │
+│  ├──────────────┤    ├──────────────┤    ├──────────────┤                  │
+│  │ • Web検索    │───▶│ • Gemini     │───▶│ • MP4動画    │                  │
+│  │ • Podcast API│    │ • VOICEVOX   │    │ • サムネイル  │                  │
+│  │ • Spreadsheet│    │ • Whisper    │    │ • メタデータ  │                  │
+│  └──────────────┘    └──────────────┘    └──────────────┘                  │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                              詳細ステップ                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Step 1: トピック取得                                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  Serper API ──▶ Gemini 3.0 Flash ──▶ トピック分析JSON               │   │
+│  │  (Web検索)      (最適トピック選定)     (topic.json)                  │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                              ▼                                              │
+│  Step 2: 台本生成                                                           │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  トピック ──▶ Gemini 3.0 Flash ──▶ 対話形式台本                      │   │
+│  │              + テンプレート構造      (script.json)                   │   │
+│  │              (4種類の構造パターン)                                    │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                              ▼                                              │
+│  Step 3: 音声合成 (VOICEVOX)                                                │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  台本 ──▶ VOICEVOX Engine ──▶ WAVチャンク ──▶ MP3結合               │   │
+│  │           (Docker: port 50021)                                       │   │
+│  │           ┌─────────────────────────────────────────────────────┐   │   │
+│  │           │ Speaker 20: もち子さん (メイン・落ち着いた声)         │   │   │
+│  │           │ Speaker 2:  四国めたん (サブ・明るい声)              │   │   │
+│  │           └─────────────────────────────────────────────────────┘   │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                              ▼                                              │
+│  Step 4: 字幕タイミング (Whisper STT)                                       │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  MP3音声 ──▶ Whisper (ローカル) ──▶ 単語レベルタイムスタンプ        │   │
+│  │              model: base (無料)      ──▶ timing.json                │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                              ▼                                              │
+│  Step 5: 動画合成                                                           │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  背景画像 ─┐                                                        │   │
+│  │  (固定)    ├──▶ MoviePy/FFmpeg ──▶ video.mp4                       │   │
+│  │  MP3音声 ──┤    (字幕オーバーレイ)                                   │   │
+│  │  タイミング┘    (話者カラーコード)                                   │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                              ▼                                              │
+│  Step 6-8: メタデータ・サムネイル生成                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  Gemini ──▶ タイトル (SEO最適化)                                    │   │
+│  │         ──▶ 説明文 (タイムスタンプ付き)                             │   │
+│  │         ──▶ タグ (15-20個)                                         │   │
+│  │         ──▶ コメント案 (5ペルソナ)                                  │   │
+│  │  PIL    ──▶ thumbnail.jpg (1280x720)                               │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                              ▼                                              │
+│  Step 9: プリフライト検証                                                    │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  ✓ 動画ファイル検証 (サイズ・長さ・コーデック)                       │   │
+│  │  ✓ サムネイル検証 (解像度・コントラスト・ファイルサイズ)             │   │
+│  │  ✓ メタデータ検証 (タイトル長・タグ数・説明文)                       │   │
+│  │  ✓ タイムスタンプ検証 (形式・重複チェック)                           │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                              ▼                                              │
+│  Step 10-11: 出力・配信                                                     │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  outputs/YYYY-MM-DD/video_NNN/                                      │   │
+│  │  ├── video.mp4, thumbnail.jpg, dialogue.mp3                        │   │
+│  │  ├── script.json, metadata.json, timing.json                       │   │
+│  │  └── manifest.json                                                  │   │
+│  │                                                                      │   │
+│  │  [オプション] YouTube Data API v3 ──▶ 自動投稿                      │   │
+│  │  [オプション] Slack Webhook ──▶ 完了通知                            │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### 使用サービス一覧
+
+| ステップ | サービス | 用途 | コスト |
+|---------|---------|------|-------|
+| トピック検索 | Serper API | Google検索 | 有料 (少額) |
+| トピック選定 | Gemini 3.0 Flash | AI分析 | 有料 |
+| 台本生成 | Gemini 3.0 Flash | 対話生成 | 有料 |
+| 音声合成 | **VOICEVOX Engine** | 日本語TTS | **無料** |
+| 字幕タイミング | **Whisper STT** | 音声認識 | **無料** |
+| 背景画像 | **固定画像** | background.png | **無料** |
+| 動画合成 | FFmpeg + MoviePy | エンコード | 無料 |
+| サムネイル | PIL | 画像生成 | 無料 |
+| メタデータ | Gemini 3.0 Flash | SEO最適化 | 有料 |
+| YouTube投稿 | YouTube Data API v3 | 自動投稿 | 無料 |
 
 ---
 
@@ -129,40 +299,44 @@
 ```mermaid
 graph TD
     Start[開始] --> Config{設定確認<br/>YOUTUBE_UPLOAD_ENABLED}
-    
+
     subgraph AI_Generation [AI生成パイプライン]
         direction TB
         Topic["1. トピック選定<br/>🤖 Gemini 3.0 Flash"] --> Script["2. 台本生成<br/>🤖 Gemini 3.0 Flash"]
         Script --> Assets["3. 素材生成"]
-        Assets --> Audio["音声合成<br/>🤖 Gemini 2.5 TTS"]
-        Assets --> BG["背景画像<br/>🎨 DALL-E 3"]
-        Audio --> Video["4. 動画合成<br/>🗣️ Whisper (STT) + MoviePy"]
+        Assets --> Audio["音声合成<br/>🎙️ VOICEVOX Engine<br/>(Docker API)"]
+        Assets --> BG["背景画像<br/>🖼️ 固定画像<br/>(background.png)"]
+        Audio --> STT["字幕タイミング<br/>🗣️ Whisper STT<br/>(ローカル・無料)"]
+        STT --> Video["4. 動画合成<br/>🎬 FFmpeg + MoviePy"]
         BG --> Video
-        Video --> Thumb["5. サムネイル生成<br/>🤖 Gemini 3.0 (Prompt)<br/>🎨 DALL-E 3 (Image)"]
+        Video --> Thumb["5. サムネイル生成<br/>🖼️ PIL + テンプレート"]
         Thumb --> Meta["6. メタデータ生成<br/>(タイトル/概要/タグ/コメント)<br/>🤖 Gemini 3.0 Flash"]
     end
 
     Config --> AI_Generation
-    
-    Meta --> CheckMode{モード分岐}
-    
+
+    Meta --> PreCheck["7. プリフライト検証<br/>✅ 動画・サムネ・メタデータ"]
+    PreCheck --> CheckMode{モード分岐}
+
     CheckMode -- 全自動(true) --> AutoUpload["YouTube自動投稿<br/>(API v3)"]
     AutoUpload --> Slack["Slack通知"]
-    
+
     CheckMode -- 半自動(false) --> Review["成果物確認<br/>outputs/..."]
     Review --> Approve{承認?}
     Approve -- Yes --> ManualUpload["手動コマンド実行<br/>upload_existing_video.py"]
     ManualUpload --> UploadDone["YouTube投稿完了"]
     Approve -- No --> Retry["再生成"]
-    
-    %% AI Model Styling
+
+    %% Styling
     style Topic fill:#e1f5fe,stroke:#01579b,stroke-width:2px
     style Script fill:#e1f5fe,stroke:#01579b,stroke-width:2px
-    style Audio fill:#e1f5fe,stroke:#01579b,stroke-width:2px
-    style BG fill:#fce4ec,stroke:#880e4f,stroke-width:2px
-    style Video fill:#e0f2f1,stroke:#004d40,stroke-width:2px
-    style Thumb fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    style Audio fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style BG fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    style STT fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style Video fill:#e0f7fa,stroke:#0097a7,stroke-width:2px
+    style Thumb fill:#e0f7fa,stroke:#0097a7,stroke-width:2px
     style Meta fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    style PreCheck fill:#ffebee,stroke:#c62828,stroke-width:2px
 ```
 
 ### 1. 全自動モード（推奨）
@@ -221,7 +395,7 @@ ai-video-bot/
   ├── # 🎨 コンテンツ生成
   ├── content_templates.py            # ⭐NEW テンプレートシステム
   ├── metadata_generator.py           # ⭐NEW メタデータ自動生成
-  ├── tts_generator.py                # Gemini TTS + ElevenLabs STT ⭐
+  ├── tts_generator.py                # VOICEVOX (推奨) / Gemini TTS / gTTS ⭐
   ├── elevenlabs_stt.py               # ⭐NEW ElevenLabs統合
   ├── nano_banana_client.py           # DALL-E画像生成
   │
@@ -281,13 +455,20 @@ cp .env.sample .env
 
 ```env
 # 必須 API キー
-GEMINI_API_KEY=your_gemini_key          # Gemini TTS/台本/メタデータ用
-OPENAI_API_KEY=your_openai_key          # DALL-E画像生成用
+GEMINI_API_KEY=your_gemini_key          # 台本/メタデータ生成用
+OPENAI_API_KEY=your_openai_key          # サムネイル画像生成用（オプション）
 
-# Gemini TTS設定（2025年12月最新モデル対応）⭐NEW
-GEMINI_TTS_MODEL=gemini-2.5-flash-preview-tts    # flash（高速・低コスト）or pro（高品質）
-GEMINI_TTS_MALE_VOICE=Zephyr             # 男性声優名
-GEMINI_TTS_FEMALE_VOICE=Breeze           # 女性声優名
+# VOICEVOX設定（Docker常駐・完全無料）⭐推奨
+USE_VOICEVOX=true                        # VOICEVOXを使用（デフォルト: 有効）
+VOICEVOX_URL=http://voicevox:50021       # Docker内部URL
+VOICEVOX_NARRATOR_MAIN_ID=20             # もち子さん（メイン）
+VOICEVOX_NARRATOR_SUB_ID=2               # 四国めたん（サブ）
+VOICEVOX_SPEED_SCALE=1.15                # 話速（1.0=通常、1.15=やや速め）
+
+# Gemini TTS（フォールバック用）
+GEMINI_TTS_MODEL=gemini-2.5-flash-preview-tts
+GEMINI_TTS_MALE_VOICE=Zephyr
+GEMINI_TTS_FEMALE_VOICE=Breeze
 
 # オプション（品質向上）⭐NEW
 USE_WHISPER_STT=true                     # Whisper STT（100%無料、デフォルト: 有効）⭐推奨
@@ -318,7 +499,27 @@ USE_WEB_SEARCH=false                    # Web検索を使うか
 docker compose build
 ```
 
-### 4. YouTube API設定（オプション）⭐NEW
+### 4. VOICEVOX Engineを起動
+
+```bash
+# VOICEVOX Engineを起動（バックグラウンド）
+docker compose up -d voicevox
+
+# 動作確認
+curl http://localhost:50021/speakers | head -c 200
+
+# 利用可能な話者一覧が表示されればOK
+```
+
+**VOICEVOX話者ID一覧（一部）:**
+| ID | 話者名 | 特徴 |
+|----|--------|------|
+| 2 | 四国めたん（ノーマル） | 明るい女性声・サブナレーター向け |
+| 20 | もち子さん（ノーマル） | 落ち着いた声・メインナレーター向け |
+| 3 | ずんだもん（ノーマル） | 元気な声 |
+| 13 | 青山龍星（ノーマル） | 落ち着いた男性声 |
+
+### 5. YouTube API設定（オプション）
 
 YouTube自動アップロード機能を使用する場合:
 
@@ -374,7 +575,7 @@ docker compose run --rm ai-video-bot python advanced_video_pipeline.py
 - ✅ YouTube自動アップロード（オプション）⭐NEW
 - ✅ プリフライトチェックでサムネ/タイトル/タイムスタンプを検証
 - ✅ Yukkuri風サムネイル（`THUMBNAIL_STYLE.md`）でCTRを最大化
-- ✅ Gemini TTSで男性×女性の掛け合い音声を自動合成
+- ✅ VOICEVOX Engineで自然な掛け合い音声を自動合成（無料）
 
 ### B. Web検索で最新トピック
 
@@ -545,24 +746,27 @@ ContentTemplates.SCRIPT_STRUCTURES["custom"] = {
 
 ## 💰 コスト試算
 
-### 基本構成（4本/日）
+### 基本構成（4本/日・現在の推奨設定）
 
-| API | 使用量 | 月額概算 |
-|-----|--------|----------|
+| サービス | 使用量 | 月額概算 |
+|---------|--------|----------|
 | Gemini API (Script/Metadata) | ~40,000 tokens/本 | ¥2,000 |
-| Gemini TTS | 10分/本 | ¥1,500 |
-| DALL-E 3 | 4枚/日 | ¥3,600 |
+| **VOICEVOX Engine** | 10分/本 | **¥0（無料）** |
+| **固定背景画像** | - | **¥0（無料）** |
+| **Whisper STT** | 10分/本 | **¥0（無料）** |
 | Serper API | 120回/月 | ¥500 |
-| **小計** | | **¥7,600** |
+| **合計** | | **¥2,500** |
 
-### 品質向上オプション
+### 従来構成との比較
 
-| API | 使用量 | 月額概算 |
-|-----|--------|----------|
-| ElevenLabs STT | 10分/本 × 120本 | ¥1,200 |
-| **合計** | | **¥8,800** |
+| 構成 | 月額コスト | 備考 |
+|------|-----------|------|
+| **現在（VOICEVOX + 固定背景）** | **¥2,500** | 推奨・大幅コスト削減 |
+| 従来（Gemini TTS + DALL-E 3） | ¥7,600 | 有料API使用 |
+| 高精度オプション（+ ElevenLabs STT） | ¥3,700 | 字幕精度99%+ |
 
 **※ Zenn記事の事例では、広告収益がAPIコストを上回っています**
+**※ VOICEVOX + Whisper採用で月額コストを約70%削減**
 
 ---
 
