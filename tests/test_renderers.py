@@ -52,21 +52,21 @@ def test_ffmpeg_renderer_get_speaker_color():
     renderer = RendererFactory.create('ffmpeg')
 
     # Test male speakers
-    male_color = renderer.get_speaker_color("男性", as_hex=False)
+    male_color = renderer.get_speaker_color("男性")
     assert male_color == (120, 200, 255)
 
-    male_color_a = renderer.get_speaker_color("A", as_hex=False)
+    male_color_a = renderer.get_speaker_color("A")
     assert male_color_a == (120, 200, 255)
 
     # Test female speakers
-    female_color = renderer.get_speaker_color("女性", as_hex=False)
+    female_color = renderer.get_speaker_color("女性")
     assert female_color == (255, 150, 180)
 
-    female_color_b = renderer.get_speaker_color("B", as_hex=False)
+    female_color_b = renderer.get_speaker_color("B")
     assert female_color_b == (255, 150, 180)
 
     # Test default (unknown speaker)
-    default_color = renderer.get_speaker_color("Unknown", as_hex=False)
+    default_color = renderer.get_speaker_color("Unknown")
     assert default_color == (120, 200, 255)  # Defaults to male
 
 
