@@ -7,6 +7,8 @@ RUN apt-get update && apt-get install -y \
     libsndfile1 \
     g++ \
     python3-dev \
+    cargo \
+    rustc \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt .

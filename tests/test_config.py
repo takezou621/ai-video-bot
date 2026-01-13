@@ -112,7 +112,7 @@ def test_settings_parse_int_invalid():
     assert _parse_int("", 1280) == 1280
     assert _parse_int("abc", 1280) == 1280
     assert _parse_int(None, 1280) == 1280
-    assert _parse_float("12.5.5", 10.0) == 10.0
+    assert _parse_int("12.5.5", 10) == 10  # Invalid float string returns default
 
 
 def test_settings_parse_float_valid():
