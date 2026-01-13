@@ -5,6 +5,8 @@ RUN apt-get update && apt-get install -y \
     fonts-noto-cjk \
     espeak-ng \
     libsndfile1 \
+    g++ \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt .
