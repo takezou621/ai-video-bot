@@ -5,6 +5,7 @@ This module centralizes configuration values that were previously
 duplicated across multiple files, reducing maintenance burden
 and ensuring consistency.
 """
+from typing import Tuple, Union
 
 
 # =============================================================================
@@ -140,7 +141,7 @@ def is_female_speaker(speaker: str) -> bool:
     return speaker in FEMALE_SPEAKERS
 
 
-def get_speaker_color(speaker: str, as_hex: bool = False) -> tuple | str:
+def get_speaker_color(speaker: str, as_hex: bool = False) -> Union[Tuple[int, int, int], str]:
     """
     Get color for speaker.
 

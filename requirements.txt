@@ -3,6 +3,9 @@ gTTS
 python-dotenv
 Pillow
 
+# Testing
+pytest>=7.0.0
+
 # New dependencies for advanced features
 anthropic>=0.18.0
 
