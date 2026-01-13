@@ -22,11 +22,11 @@ class VideoSettings:
     @classmethod
     def from_env(cls) -> 'VideoSettings':
         return cls(
-            width=int(os.getenv('VIDEO_WIDTH', '1920')),
-            height=int(os.getenv('VIDEO_HEIGHT', '1080')),
-            fps=int(os.getenv('FPS', '30')),
-            duration_minutes=int(os.getenv('DURATION_MINUTES', '10')),
-            videos_per_day=int(os.getenv('VIDEOS_PER_DAY', '1')),
+            width=_parse_int(os.getenv('VIDEO_WIDTH', '1920'), 1920),
+            height=_parse_int(os.getenv('VIDEO_HEIGHT', '1080'), 1080),
+            fps=_parse_int(os.getenv('FPS', '30'), 30),
+            duration_minutes=_parse_int(os.getenv('DURATION_MINUTES', '10'), 10),
+            videos_per_day=_parse_int(os.getenv('VIDEOS_PER_DAY', '1'), 1),
             use_moviepy=_parse_bool(os.getenv('USE_MOVIEPY', 'true')),
         )
 
@@ -44,8 +44,8 @@ class GeminiSettings:
         return cls(
             api_key=os.getenv('GEMINI_API_KEY'),
             model=os.getenv('GEMINI_MODEL', 'gemini-3-flash-preview'),
-            temperature=float(os.getenv('GEMINI_TEMPERATURE', '0.9')),
-            max_output_tokens=int(os.getenv('GEMINI_MAX_TOKENS', '8192')),
+            temperature=_parse_float(os.getenv('GEMINI_TEMPERATURE', '0.9'), 0.9),
+            max_output_tokens=_parse_int(os.getenv('GEMINI_MAX_TOKENS', '8192'), 8192),
         )
 
 
@@ -179,6 +179,40 @@ class Settings:
             notification=NotificationSettings.from_env(),
             topic_category=os.getenv('TOPIC_CATEGORY', 'economics'),
         )
+
+
+def _parse_int(value: str, default: int) -> int:
+    """
+    Parse integer from environment variable string.
+
+    Args:
+        value: String value to parse
+        default: Default value if parsing fails
+
+    Returns:
+        Parsed integer or default
+    """
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def _parse_float(value: str, default: float) -> float:
+    """
+    Parse float from environment variable string.
+
+    Args:
+        value: String value to parse
+        default: Default value if parsing fails
+
+    Returns:
+        Parsed float or default
+    """
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
 
 
 def _parse_bool(value: str) -> bool:
