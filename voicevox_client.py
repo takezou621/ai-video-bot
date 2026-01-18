@@ -39,6 +39,17 @@ VOICEVOX_URL = os.getenv("VOICEVOX_URL", "http://voicevox:50021")
 NARRATOR_MAIN = int(os.getenv("VOICEVOX_NARRATOR_MAIN_ID", "20"))  # もち子さん - 落ち着いた進行
 NARRATOR_SUB = int(os.getenv("VOICEVOX_NARRATOR_SUB_ID", "2"))     # 四国めたん - 明るい補足
 
+# Narrator name → Speaker ID mapping for specific narrators
+# Used when narrator names are detected in podcast scenarios
+NARRATOR_SPEAKER_MAP = {
+    "森下菜々": 9,   # 波音リツ
+    "もりした なな": 9,  # 波音リツ
+    "菜々": 9,          # 波音リツ
+    "天野結衣": 2,     # 四国めたん
+    "あまの ゆい": 2,  # 四国めたん（天野結衣の別名）
+    "結衣": 2,         # 四国めたん（天野結衣の略称）
+}
+
 # Voice parameters
 SPEED_SCALE = float(os.getenv("VOICEVOX_SPEED_SCALE", "1.15"))
 PITCH_SCALE = float(os.getenv("VOICEVOX_PITCH_SCALE", "0.0"))
@@ -503,3 +514,34 @@ if __name__ == "__main__":
     else:
         print(f"VOICEVOX engine not available at {VOICEVOX_URL}")
         print("Start VOICEVOX with: docker compose up voicevox")
+
+
+def get_speaker_id_for_narrator(narrator: Optional[str], speaker_role: str = "main") -> int:
+    """
+    ナレーター名に応じたVOICEVOXスピーカーIDを返す
+
+    Args:
+        narrator: ナレーター名（例: "森下菜々", "天野結衣"）
+        speaker_role: 役割（main/sub）
+
+    Returns:
+        スピーカーID
+    """
+    # 優先順: ナレーター名マッチ → 役割ベース → デフォルト
+    if narrator and narrator.strip():
+        narrator = narrator.strip()
+        if narrator in NARRATOR_SPEAKER_MAP:
+            speaker_id = NARRATOR_SPEAKER_MAP[narrator]
+            print(f"[VOICEVOX] Narrator '{narrator}' -> speaker ID {speaker_id}")
+            return speaker_id
+
+    # 役割ベースの選択
+    role = str(speaker_role).lower()
+    if role in ["sub", "b", "female", "woman", "女性", "assistant"]:
+        print(f"[VOICEVOX] Role '{speaker_role}' -> NARRATOR_SUB (ID={NARRATOR_SUB})")
+        return NARRATOR_SUB
+    else:
+        # Default to MAIN for "main", "a", "male", "man", "男性", or unknown
+        print(f"[VOICEVOX] Role '{speaker_role}' -> NARRATOR_MAIN (ID={NARRATOR_MAIN})")
+        return NARRATOR_MAIN
+
