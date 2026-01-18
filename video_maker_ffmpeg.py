@@ -4,6 +4,7 @@ Replaces MoviePy with direct FFmpeg commands for better stability and speed.
 """
 import subprocess
 import os
+import shutil
 from pathlib import Path
 from typing import List, Dict
 from PIL import Image, ImageDraw
@@ -21,6 +22,29 @@ VIDEO_WIDTH = 1920
 VIDEO_HEIGHT = 1080
 FPS = 30
 GRADIENT_HEIGHT_RATIO = 0.35
+
+
+def _get_ffmpeg_path() -> str:
+    """
+    Get FFmpeg path, preferring ffmpeg-full which has libass support.
+
+    Returns:
+        Path to FFmpeg executable
+    """
+    # Priority order for FFmpeg
+    paths_to_try = [
+        "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg",  # Has libass support
+        "/opt/homebrew/bin/ffmpeg",  # Regular ffmpeg
+        "/usr/local/bin/ffmpeg",
+    ]
+
+    for path in paths_to_try:
+        if Path(path).exists():
+            return path
+
+    # Fallback to system path
+    result = shutil.which("ffmpeg")
+    return result if result else "ffmpeg"
 
 def _apply_gradient_to_background(background_path: Path, output_path: Path) -> Path:
     """Apply gradient to background image using pure PIL (no numpy)"""
@@ -99,13 +123,17 @@ def make_podcast_video_ffmpeg(
     # Filters:
     # - subtitles: Burn in subtitles
     # - shortest: Stop when audio ends
-    
+
+    # Escape subtitle path for FFmpeg subtitles filter
+    # Use filename= prefix to avoid path parsing issues
+    ass_escaped = str(ass_path).replace(":", r"\:").replace("'", r"\'")
+
     cmd = [
-        "ffmpeg", "-y",
+        _get_ffmpeg_path(), "-y",
         "-loop", "1",
         "-i", str(bg_processed),
         "-i", str(audio_path),
-        "-vf", f"subtitles={ass_path}",
+        "-vf", f"subtitles=filename='{ass_escaped}'",
         "-c:v", "libx264",
         "-preset", "medium",
         "-tune", "stillimage",

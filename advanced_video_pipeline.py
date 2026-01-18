@@ -8,6 +8,11 @@ import datetime
 import json
 from pathlib import Path
 from dotenv import load_dotenv
+
+# Load environment variables FIRST before importing modules that need them
+BASE = Path(__file__).parent.resolve()
+load_dotenv(BASE / ".env")
+
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Import all our new modules
@@ -321,23 +326,14 @@ def generate_single_video(
                         generate_image_wrapper(img_prompt, img_path)
 
                         # Check for benchmarks to create info-card
+                        # Note: Info-card generation disabled per user request
+                        # Cards are created but NOT overlaid on background to avoid text interference
                         benchmarks = section.get("benchmarks", [])
                         if benchmarks:
                             card_path = outdir / f"bench_card_{i:02d}.png"
                             create_benchmark_card(section.get("title", "Benchmarks"), benchmarks, card_path)
-
-                            # Overlay card on background
-                            try:
-                                bg_img = Image.open(img_path).convert("RGBA")
-                                card_img = Image.open(card_path).convert("RGBA")
-                                bg_w, bg_h = bg_img.size
-                                card_w, card_h = card_img.size
-                                offset = ((bg_w - card_w) // 2, (bg_h - card_h) // 2)
-                                bg_img.paste(card_img, offset, card_img)
-                                bg_img.save(img_path)
-                                print(f"  [Image] Info-card overlaid on background_{i:02d}.png")
-                            except Exception as e:
-                                print(f"  [Image] Failed to overlay info-card: {e}")
+                            # Card saved but NOT overlaid on background (text overlay disabled)
+                            print(f"  [Image] Info-card saved separately (not overlaid)")
 
                         backgrounds.append({"path": img_path, "start": start_time})
 
@@ -979,10 +975,7 @@ def generate_videos_from_podcast_api(
 
 def main():
     """Main entry point"""
-    if (BASE / ".env").exists():
-        load_dotenv(BASE / ".env")
-
-    # Get configuration
+    # Get configuration (env already loaded at module import)
     videos_per_day = int(os.getenv("VIDEOS_PER_DAY", "1"))
     duration_minutes = int(os.getenv("DURATION_MINUTES", "5"))
     topic_category = os.getenv("TOPIC_CATEGORY", "ai_news")

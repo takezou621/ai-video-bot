@@ -12,12 +12,45 @@ from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 from api_key_manager import get_api_key, report_api_success, report_api_failure
 
-import voicevox_client
 import text_normalizer
+from voicevox_client import is_available as check_voicevox_available
+import voicevox_client
 
 # TTS Priority Configuration
 USE_VOICEVOX = os.getenv("USE_VOICEVOX", "true").lower() == "true"
-VOICEVOX_AVAILABLE = voicevox_client.is_available() if USE_VOICEVOX else False
+
+# Gemini TTS control (separate from GEMINI_API_KEY to allow script generation but skip TTS)
+USE_GEMINI_TTS = os.getenv("USE_GEMINI_TTS", "true").lower() == "true"
+
+# Lazy evaluation - only check VOICEVOX when actually needed
+_voicevox_available_cached = None
+_voicevox_checked = False
+
+def _check_voicevox_available() -> bool:
+    """Check VOICEVOX availability lazily - only when needed."""
+    global _voicevox_available_cached, _voicevox_checked
+
+    if not USE_VOICEVOX:
+        return False
+
+    # Return cached value if already checked
+    if _voicevox_checked:
+        return _voicevox_available_cached
+
+    try:
+        _voicevox_available_cached = check_voicevox_available()
+    except Exception:
+        _voicevox_available_cached = False
+
+    _voicevox_checked = True
+    return _voicevox_available_cached
+
+def get_voicevox_available() -> bool:
+    """Get VOICEVOX availability status (cached after first check)."""
+    return _check_voicevox_available()
+
+# Don't call _check_voicevox_available() at import time - this causes blocking
+# The check will be performed lazily when first needed
 
 # Gemini TTS (fallback)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -36,10 +69,11 @@ WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 USE_ELEVENLABS_STT = os.getenv("USE_ELEVENLABS_STT", "false").lower() == "true" and bool(ELEVENLABS_API_KEY)
 
-# Log TTS strategy
-if VOICEVOX_AVAILABLE:
-    print(f"[TTS] Primary: VOICEVOX (local, FREE)")
-elif GEMINI_API_KEY:
+# Log TTS strategy (lazy check - only at function call time, not import)
+# Note: We defer checking VOICEVOX availability until actually needed
+if USE_VOICEVOX:
+    print(f"[TTS] Primary: VOICEVOX (will check availability when needed)")
+elif GEMINI_API_KEY and USE_GEMINI_TTS:
     print(f"[TTS] Primary: Gemini TTS ({GEMINI_TTS_MODEL})")
 else:
     print("[TTS] Primary: gTTS (basic fallback)")
@@ -93,9 +127,9 @@ def generate_dialogue_audio(
         return _create_empty_audio(output_path), []
 
     # Choose TTS engine
-    if VOICEVOX_AVAILABLE:
+    if _check_voicevox_available():
         return _generate_with_voicevox(normalized_dialogues, output_path)
-    elif GEMINI_API_KEY:
+    elif GEMINI_API_KEY and USE_GEMINI_TTS:
         return _generate_with_gemini(normalized_dialogues, output_path)
     else:
         return _fallback_tts(normalized_dialogues, output_path)
@@ -297,33 +331,34 @@ def _generate_with_gemini(dialogues: List[Dict], output_path: Path) -> Tuple[Pat
 
 
 def _fallback_tts(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[Dict]]:
-    """Fallback to gTTS if other engines fail."""
+    """Fallback to gTTS (Google Text-to-Speech)."""
     from gtts import gTTS
 
-    print("[TTS] Using gTTS fallback...")
+    print("[TTS] Using gTTS (Google Text-to-Speech)...")
 
     temp_files = []
     timing_data = []
     current_time = 0.0
+    chunks_dir = output_path.parent / "tts_chunks"
+    chunks_dir.mkdir(exist_ok=True)
 
     for i, d in enumerate(dialogues):
         text = d.get("text", "")
         if not text.strip():
             continue
 
-        temp_path = output_path.parent / f"temp_{i}.mp3"
+        temp_path = chunks_dir / f"chunk_{i}.mp3"
+        speaker = d.get("speaker", "男性")
 
         try:
             tts = gTTS(text=text, lang="ja")
             tts.save(str(temp_path))
+
             temp_files.append(temp_path)
 
             duration = _get_audio_duration(temp_path)
-            if SPEED_FACTOR != 1.0:
-                duration = duration / SPEED_FACTOR
-
             timing_data.append({
-                "speaker": d.get("speaker", "男性"),
+                "speaker": speaker,
                 "text": d.get("original_text", text),
                 "start": current_time,
                 "end": current_time + duration,
@@ -336,9 +371,12 @@ def _fallback_tts(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[
     final_path = output_path.with_suffix(".mp3")
 
     if temp_files:
+        # Concatenate with overall speed factor
         _concatenate_chunks(temp_files, final_path, speed_factor=SPEED_FACTOR)
+        # Clean up chunks
         for tf in temp_files:
             tf.unlink(missing_ok=True)
+        chunks_dir.rmdir()
     else:
         _create_empty_audio(final_path)
 
@@ -521,7 +559,7 @@ if __name__ == "__main__":
 
     test_output = Path("/tmp/tts_test/dialogue.mp3")
 
-    print(f"VOICEVOX available: {VOICEVOX_AVAILABLE}")
+    print(f"VOICEVOX available: {_check_voicevox_available()}")
     print(f"Gemini API key: {'Yes' if GEMINI_API_KEY else 'No'}")
 
     result_path, timing = generate_dialogue_audio(test_dialogues, test_output)
