@@ -64,9 +64,7 @@ def generate_mp4_with_subtitle(
     output_mp4_path: str,
     background_image_path: Optional[str] = None,
     background_color: str = "black",
-    resolution: str = "1920x1080",
-    font_size: int = 48,
-    font_color: str = "white"
+    resolution: str = "1920x1080"
 ) -> bool:
     """
     音声と字幕からMP4動画を生成
@@ -78,8 +76,6 @@ def generate_mp4_with_subtitle(
         background_image_path: 背景画像パス（オプション、指定がない場合は背景色を使用）
         background_color: 背景色（デフォルト: black）
         resolution: 動画解像度（デフォルト: 1920x1080）
-        font_size: フォントサイズ（デフォルト: 48）
-        font_color: フォントカラー（デフォルト: white）
 
     Returns:
         成功すればTrue、失敗すればFalse
@@ -123,12 +119,10 @@ def generate_mp4_with_subtitle(
     # 字幕ファイルのエスケープ処理
     def escape_subtitle_path(path: str) -> str:
         """FFmpeg subtitlesフィルター用のパスエスケープ"""
-        # Windows用: バックスラッシュをスラッシュに変換
-        escaped = path.replace("\\", "/")
-        # コロンをエスケープ（Windows用）
+        # 最初にバックスラッシュをエスケープ（コロンエスケープより先に行う）
+        escaped = path.replace("\\", "\\\\")
+        # 次にコロンをエスケープ（Windows用）
         escaped = escaped.replace(":", "\\:")
-        # バックスラッシュをエスケープ
-        escaped = escaped.replace("\\", "\\\\")
         # FFmpegのsubtitlesフィルター用にfilename=を追加
         return f"filename={escaped}"
 

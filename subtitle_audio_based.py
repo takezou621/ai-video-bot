@@ -79,10 +79,27 @@ def get_audio_duration(audio_path: str) -> int:
     Returns:
         ミリ秒単位の長さ
     """
+    # 方法1: pydubを使用
     try:
         from pydub import AudioSegment
         audio = AudioSegment.from_wav(audio_path)
         return len(audio)
+    except Exception:
+        pass
+
+    # 方法2: ffprobeを使用（フォールバック）
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", audio_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True
+        )
+        duration_sec = float(result.stdout.strip())
+        return int(duration_sec * 1000)  # ミリ秒に変換
     except Exception as e:
         print(f"Error loading audio {audio_path}: {e}")
         return 0
@@ -290,9 +307,12 @@ def generate_srt_from_combined_audio(
 def main():
     """コマンドラインからの実行用"""
     if len(sys.argv) < 3:
-        print("Usage: python subtitle_audio_based.py <audio_dir> <output.srt>", file=sys.stderr)
-        print("\nExample:")
+        print("Usage: python subtitle_audio_based.py <audio_dir> <output.srt> [--dialogues json_file]", file=sys.stderr)
+        print("\nExamples:")
+        print("  # Use default test dialogues")
         print("  python subtitle_audio_based.py outputs/2025-01-18/video_001/chunks outputs/2025-01-18/video_001/subtitle.srt", file=sys.stderr)
+        print("  # Use dialogues from JSON file")
+        print("  python subtitle_audio_based.py outputs/2025-01-18/video_001/chunks outputs/2025-01-18/video_001/subtitle.srt --dialogues dialogues.json", file=sys.stderr)
         sys.exit(1)
 
     audio_dir = sys.argv[1]
@@ -303,15 +323,32 @@ def main():
         print(f"Error: Audio directory not found: {audio_dir}", file=sys.stderr)
         sys.exit(1)
 
-    # テスト用ダイアログ（実際にはJSONファイルなどから読む）
-    test_dialogues = [
-        {"speaker": "男性", "text": "こんにちは、本日のニュースをお届けします。"},
-        {"speaker": "女性", "text": "AIの進化が加速していますね。"},
-    ]
+    # ダイアログの読み込み
+    dialogues = None
+    if "--dialogues" in sys.argv:
+        dialogues_idx = sys.argv.index("--dialogues")
+        if dialogues_idx + 1 < len(sys.argv):
+            dialogues_file = sys.argv[dialogues_idx + 1]
+            try:
+                with open(dialogues_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    dialogues = data.get("dialogues", [])
+                print(f"Loaded {len(dialogues)} dialogues from {dialogues_file}")
+            except Exception as e:
+                print(f"Error loading dialogues from {dialogues_file}: {e}", file=sys.stderr)
+                sys.exit(1)
+
+    # フォールバック: デフォルトのテストダイアログ
+    if dialogues is None:
+        dialogues = [
+            {"speaker": "男性", "text": "こんにちは、本日のニュースをお届けします。"},
+            {"speaker": "女性", "text": "AIの進化が加速していますね。"},
+        ]
+        print("Using default test dialogues")
 
     # 字幕を生成
     success = generate_srt_from_audio_segments(
-        dialogues=test_dialogues,
+        dialogues=dialogues,
         audio_dir=audio_dir,
         output_srt_path=output_srt_path
     )

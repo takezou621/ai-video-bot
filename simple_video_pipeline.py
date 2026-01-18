@@ -16,7 +16,6 @@ import json
 import sys
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
-import hashlib
 
 # プロジェクト内のモジュールをインポート
 import tts_generator
@@ -92,36 +91,32 @@ def parse_scenario_json(scenario_path: str) -> List[Dict]:
     return data.get("dialogues", [])
 
 
-def generate_video_from_script(
-    script_path: str,
+def _generate_video_internal(
+    dialogues: List[Dict],
     output_dir: str,
-    background_image: Optional[str] = None
+    background_image: Optional[str] = None,
+    step1_message: str = "[Step 1] ダイアログを読み込み"
 ) -> bool:
     """
-    スクリプトファイルから動画を生成
+    ダイアログリストから動画を生成する内部関数
 
     Args:
-        script_path: スクリプトファイルのパス
+        dialogues: ダイアログリスト
         output_dir: 出力ディレクトリ
         background_image: 背景画像のパス（Noneの場合はプロジェクトルートのbackground.png）
+        step1_message: Step 1のメッセージ
 
     Returns:
         成功すればTrue
     """
-    print("=" * 60)
-    print("シンプル動画生成パイプライン")
-    print("=" * 60)
-
     # 出力ディレクトリを作成
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # スクリプトをパース
-    print(f"\n[Step 1] スクリプトを読み込み: {script_path}")
-    dialogues = parse_script_file(script_path)
-
+    # ダイアログを確認
+    print(f"\n{step1_message}")
     if not dialogues:
-        print(f"Error: No dialogues found in {script_path}")
+        print("Error: No dialogues provided")
         return False
 
     print(f"  Found {len(dialogues)} dialogues")
@@ -218,6 +213,37 @@ def generate_video_from_script(
         return False
 
 
+def generate_video_from_script(
+    script_path: str,
+    output_dir: str,
+    background_image: Optional[str] = None
+) -> bool:
+    """
+    スクリプトファイルから動画を生成
+
+    Args:
+        script_path: スクリプトファイルのパス
+        output_dir: 出力ディレクトリ
+        background_image: 背景画像のパス（Noneの場合はプロジェクトルートのbackground.png）
+
+    Returns:
+        成功すればTrue
+    """
+    print("=" * 60)
+    print("シンプル動画生成パイプライン")
+    print("=" * 60)
+
+    # スクリプトをパース
+    dialogues = parse_script_file(script_path)
+
+    return _generate_video_internal(
+        dialogues=dialogues,
+        output_dir=output_dir,
+        background_image=background_image,
+        step1_message=f"\n[Step 1] スクリプトを読み込み: {script_path}"
+    )
+
+
 def generate_video_from_scenario_json(
     scenario_path: str,
     output_dir: str,
@@ -238,85 +264,15 @@ def generate_video_from_scenario_json(
     print("シンプル動画生成パイプライン (JSON入力)")
     print("=" * 60)
 
-    # 出力ディレクトリを作成
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-
     # シナリオをパース
-    print(f"\n[Step 1] シナリオJSONを読み込み: {scenario_path}")
     dialogues = parse_scenario_json(scenario_path)
 
-    if not dialogues:
-        print(f"Error: No dialogues found in {scenario_path}")
-        return False
-
-    print(f"  Found {len(dialogues)} dialogues")
-
-    # 背景画像のパスを決定
-    if background_image is None:
-        project_root = Path(__file__).parent
-        default_bg = project_root / "background.png"
-        background_image = str(default_bg) if default_bg.exists() else None
-
-    if background_image and Path(background_image).exists():
-        print(f"  Background: {background_image}")
-
-    # 音声生成
-    print(f"\n[Step 2] 音声を生成")
-    audio_path = output_path / "dialogue.mp3"
-
-    try:
-        audio_result, timing_data = tts_generator.generate_dialogue_audio(
-            dialogues=dialogues,
-            output_path=audio_path
-        )
-        print(f"  ✓ Audio generated: {audio_result}")
-    except Exception as e:
-        print(f"  ✗ Audio generation failed: {e}")
-        return False
-
-    # 字幕生成
-    print(f"\n[Step 3] 字幕を生成")
-    subtitle_path = output_path / "subtitle.srt"
-
-    # チャンクディレクトリを確認
-    chunks_dir = output_path / "chunks"
-
-    if chunks_dir.exists():
-        success = subtitle_audio_based.generate_srt_from_audio_segments(
-            dialogues=dialogues,
-            audio_dir=str(chunks_dir),
-            output_srt_path=str(subtitle_path)
-        )
-    else:
-        success = subtitle_audio_based.generate_srt_from_combined_audio(
-            dialogues=dialogues,
-            combined_audio_path=str(audio_result),
-            output_srt_path=str(subtitle_path),
-            estimated_timing=timing_data
-        )
-
-    if not success:
-        print(f"  ✗ Subtitle generation failed")
-        return False
-
-    # 動画生成
-    print(f"\n[Step 4] 動画を生成")
-    video_path = output_path / "video.mp4"
-
-    success = video_generator_simple.generate_mp4_with_subtitle(
-        audio_path=str(audio_result),
-        subtitle_path=str(subtitle_path),
-        output_mp4_path=str(video_path),
-        background_image_path=background_image
+    return _generate_video_internal(
+        dialogues=dialogues,
+        output_dir=output_dir,
+        background_image=background_image,
+        step1_message=f"\n[Step 1] シナリオJSONを読み込み: {scenario_path}"
     )
-
-    if success:
-        print(f"\n✓ 動画生成完了!")
-        print(f"  Output: {video_path}")
-        return True
-    else:
-        return False
 
 
 def generate_video_from_dialogues(
