@@ -447,26 +447,36 @@ def _write_audio_chunk(audio_bytes: bytes, mime_type: str, output_path: Path):
 
 def _concatenate_chunks(chunk_paths: List[Path], output_path: Path, speed_factor: float = 1.0):
     """Concatenate audio chunks into single file."""
+    import os
     concat_file = output_path.parent / "tts_concat.txt"
 
+    # Use relative paths from the concat file directory to avoid path duplication
+    output_dir = output_path.parent
     with open(concat_file, "w", encoding="utf-8") as f:
         for chunk in chunk_paths:
-            f.write(f"file '{chunk}'\n")
+            # Use relative path or just filename if in same directory
+            try:
+                rel_path = os.path.relpath(chunk, output_dir)
+                f.write(f"file '{rel_path}'\n")
+            except ValueError:
+                # On Windows or different drives, use absolute path
+                f.write(f"file '{chunk}'\n")
 
     filter_args = []
     if speed_factor != 1.0:
         filter_args = ["-filter:a", f"atempo={speed_factor}"]
 
+    # Run FFmpeg from the output directory to handle relative paths correctly
     subprocess.run([
         "ffmpeg", "-y",
         "-f", "concat",
         "-safe", "0",
-        "-i", str(concat_file),
+        "-i", "tts_concat.txt",
         *filter_args,
         "-c:a", "libmp3lame",
         "-b:a", "192k",
-        str(output_path)
-    ], check=True, capture_output=True)
+        str(output_path.name)
+    ], check=True, capture_output=True, cwd=str(output_dir))
 
     concat_file.unlink(missing_ok=True)
 
