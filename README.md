@@ -387,7 +387,6 @@ ai-video-bot/
   ├── .env.sample
   │
   ├── # 🎯 コアパイプライン
-  ├── daily_video_job.py              # シンプル版（レガシー）
   ├── advanced_video_pipeline.py      # ⭐ 高度版（推奨）
   │
   ├── # 🤖 AI統合
@@ -598,7 +597,6 @@ docker compose run --rm ai-video-bot python advanced_video_pipeline.py
 
 ```bash
 # 基本機能のみ（固定トピック）
-docker compose run --rm ai-video-bot python daily_video_job.py
 ```
 
 ### E. YouTube自動アップロード⭐NEW
