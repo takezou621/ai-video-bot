@@ -51,7 +51,8 @@ services:
     environment:
       - VV_CPU_NUM_THREADS=4
     volumes:
-      - voicevox-cache:/root/.local/share/voicevox-engine
+      - ./voicevox-cache:/home/user/.local/share
+    privileged: true
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:50021/speakers"]
       interval: 30s

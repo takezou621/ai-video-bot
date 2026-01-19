@@ -26,7 +26,11 @@ TEXT_GENERATION_PROMPT = """あなたは日本のニュース台本作家です�
 **重要ルール:**
 1.  **言語**: すべて**日本語**で作成してください。
 2.  **カタカナ表記**: 外来語は必ずカタカナで書いてください。（例：「スキル」「コパイロット」「オープンエーアイ」）
-3.  **フォーマット**: 必ず以下の形式で出力してください。余計な説明は不要です。
+3.  **⚠️ 英語禁止**: 台本内に英語の文章や単語を含めないでください
+    - 固有名詞（OpenAI, Microsoft等）はカタカナ表記（オープンAI, マイクロソフト）にしてください
+    - 技術用語（API, GPU等）はカタカナ表記として使用可
+    - 英語のニュース見出しや記事内容は、日本語で要約・解説してください
+4.  **フォーマット**: 必ず以下の形式で出力してください。余計な説明は不要です。
 
 Title: [動画タイトル]
 A: [話者Aのセリフ]
@@ -104,9 +108,25 @@ def generate_story(topic: str = None, duration_minutes: int = None, news_article
         articles_text = ""
         if news_articles:
             for article in news_articles[:5]:
-                articles_text += f"- {article.get('title', '')}: {article.get('snippet', '')}\n"
+                # Convert English to Katakana in article titles and snippets
+                try:
+                    from english_to_katakana import preprocess_text_for_tts
+                    title = preprocess_text_for_tts(article.get('title', ''))
+                    snippet = preprocess_text_for_tts(article.get('snippet', ''))
+                    articles_text += f"- {title}: {snippet}\n"
+                except ImportError:
+                    articles_text += f"- {article.get('title', '')}: {article.get('snippet', '')}\n"
         else:
-            articles_text = f"Topic: {topic or 'Latest AI Trends'}"
+            # Convert English topic to Katakana
+            if topic:
+                try:
+                    from english_to_katakana import preprocess_text_for_tts
+                    topic_kana = preprocess_text_for_tts(topic)
+                    articles_text = f"トピック: {topic_kana}"
+                except ImportError:
+                    articles_text = f"Topic: {topic}"
+            else:
+                articles_text = "トピック: 最新AIトレンド"
 
         prompt = TEXT_GENERATION_PROMPT.format(news_articles=articles_text)
         print("[LLM] Generating script...")

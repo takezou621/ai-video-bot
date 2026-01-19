@@ -192,13 +192,23 @@ def generate_dialogue_script(
         past_topics = get_past_topics(max_count=20)
 
         # Get topic details
-        title = topic_analysis.get("title", "")
+        title_raw = topic_analysis.get("title", "")
         angle = topic_analysis.get("angle", "")
         key_points = topic_analysis.get("key_points", [])
         selected_topic = topic_analysis.get("selected_topic", {})
-        snippet = selected_topic.get("snippet", "")
+        snippet_raw = selected_topic.get("snippet", "")
+
+        # Convert English to Katakana for title and snippet
+        try:
+            from english_to_katakana import preprocess_text_for_tts
+            title = preprocess_text_for_tts(title_raw) if title_raw else ""
+            snippet = preprocess_text_for_tts(snippet_raw) if snippet_raw else ""
+        except ImportError:
+            title = title_raw
+            snippet = snippet_raw
+
         hook_description = ContentTemplates.describe_hook_structure(title or "このトピック")
-        
+
         # Check if this is an International AI News topic
         is_ai_news = selected_topic.get("is_english", False)
         source_name = selected_topic.get("source", "海外メディア")
@@ -265,6 +275,14 @@ def generate_dialogue_script(
 - **必須**: 各トピックで「情報ソース（論文名や企業ブログ）」を明示。
 - 専門用語（RAG, Fine-tuning, Inference等）は使いつつ、文脈でさらっと意味が伝わるように。
 
+# ⚠️ 重要: 英語の使用禁止
+- 台本内に英語の文章や長い引用を含めないでください
+- 固有名詞（OpenAI, Microsoft, GitHub, Copilot等）はカタカナ表記（オープンAI, マイクロソフト, ギットハブ, コパイロット）にしてください
+- 技術用語（API, GPU, LLM, RAG等）はカタカナ表記として使用可
+- 英語のニュース見出しや記事内容は、日本語で要約・解説してください
+- 例: "Microsoft Copilot" → "マイクロソフトのコパイロット"
+- 例: "The Register" → "ITメディアのレジスター"
+
 # 構成イメージ
 1. フック: 「今週、AI界隈を震撼させた3つのニュース。特に〇〇の数値が異常です」
 2. ニュース解説: [技術名/モデル名] → 数値的スペック → 競合比較
@@ -318,11 +336,19 @@ URL: {source_url}
 {structure_desc}
 
 # 台本要件
-- 対話形式: 
+- 対話形式:
     - 男性（AIリサーチャー）: 論文やドキュメントを読み込んでいる専門家。
     - 女性（開発者/エンジニア）: 実際にツールを使う立場から、実装やコストについて質問する。
 - 全体で約{duration_minutes}分
 - **重要**: 一般ニュースのような「便利になりますね」等の浅い感想は禁止。「APIのレイテンシが...」「推論コストが...」といった技術的な会話にする。
+
+# ⚠️ 重要: 英語の使用禁止
+- 台本内に英語の文章や長い引用を含めないでください
+- 固有名詞（OpenAI, Microsoft, GitHub, Copilot等）はカタカナ表記（オープンAI, マイクロソフト, ギットハブ, コパイロット）にしてください
+- 技術用語（API, GPU, LLM, RAG等）はカタカナ表記として使用可
+- 英語のニュース見出しや記事内容は、日本語で要約・解説してください
+- 例: "Microsoft Copilot" → "マイクロソフトのコパイロット"
+- 例: "The Register" → "ITメディアのレジスター"
 
 # 構成イメージ
 1. 技術フック: 「ついに{title}が登場。ベンチマークで〇〇超えを記録しました」
@@ -384,6 +410,14 @@ JSONのみを出力してください。"""
   5. まとめ
   6. 軽い雑談風の感想
   7. CTA（チャンネル登録促進）
+
+# ⚠️ 重要: 英語の使用禁止
+- 台本内に英語の文章や長い引用を含めないでください
+- 固有名詞（OpenAI, Microsoft, GitHub, Nvidia等）はカタカナ表記（オープンAI, マイクロソフト, ギットハブ, エヌビディア）にしてください
+- 技術用語（API, GPU, LLM, RAG等）はカタカナ表記として使用可
+- 英語のニュース見出しや記事内容は、日本語で要約・解説してください
+- 例: "Microsoft Copilot" → "マイクロソフトのコパイロット"
+- 例: "The Register" → "ITメディアのレジスター"
 
 # **必須：詳細解説の品質基準**
 

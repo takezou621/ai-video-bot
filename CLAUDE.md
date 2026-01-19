@@ -17,9 +17,7 @@ The system has been enhanced with high-quality features based on the Zenn articl
 1. **Whisper STT Integration** (`whisper_stt.py`): **100% FREE** accurate subtitle synchronization using OpenAI Whisper (local execution, no API costs, 95%+ accuracy)
 2. **ElevenLabs STT Integration** (`elevenlabs_stt.py`): Optional paid alternative for subtitle synchronization (99%+ accuracy)
 3. **Enhanced Gemini Prompts** (`claude_generator.py`): Template-driven content generation with Gemini 3.0 Flash
-...
-3. **Script Generation** (`claude_generator.py`): Gemini 3.0 Flash creates template-driven dialogue
-4. **MoviePy Rendering** (`video_maker_moviepy.py`): Higher quality subtitle rendering with fade effects
+4. **FFmpeg Video Rendering** (`video_maker_ffmpeg.py`): Fast, efficient video assembly with subtitles
 5. **Template System** (`content_templates.py`): 4 script structures, 6 title patterns, 5 character personas
 6. **Pre-upload Validation** (`pre_upload_checks.py`): Automated quality checks before YouTube upload
 7. **Thumbnail Tooling** (`thumb_lint.py`): Quality assurance for thumbnail generation
@@ -32,11 +30,8 @@ See `QUALITY_IMPROVEMENTS.md` and `TEMPLATE_SYSTEM.md` for detailed information.
 ### Running Video Generation
 
 ```bash
-# Advanced generation (recommended, with all features)
+# Video generation (full 11-step pipeline)
 docker compose run --rm ai-video-bot python advanced_video_pipeline.py
-
-# Simple generation (legacy, fixed nostalgic topics)
-docker compose run --rm ai-video-bot python daily_video_job.py
 
 # Test individual modules
 docker compose run --rm ai-video-bot python web_search.py
@@ -78,7 +73,6 @@ docker compose build
 - `WHISPER_MODEL_SIZE`: Whisper model size (tiny/base/small/medium/large, default: base)
 - `USE_ELEVENLABS_STT`: Enable ElevenLabs STT for subtitle timing (true/false, paid API, requires API key)
 - `ELEVENLABS_API_KEY`: API key for ElevenLabs STT (optional, only if USE_ELEVENLABS_STT=true)
-- `USE_MOVIEPY`: Enable MoviePy for higher quality rendering (true/false, slower but better quality)
 
 **YouTube Upload Settings:**
 - `YOUTUBE_UPLOAD_ENABLED`: Enable automatic YouTube upload (true/false, requires OAuth setup)
@@ -99,16 +93,15 @@ docker compose build
 
 ## Architecture
 
-### Three Generation Modes
+### Generation Modes
 
-1. **Simple Mode** (`daily_video_job.py`): Legacy 4-step pipeline with fixed topics
-   - Gemini-based script generation → Image → Audio → Video
+The system supports two primary generation modes:
 
-2. **Advanced Mode** (`advanced_video_pipeline.py`): Full 11-step production pipeline
+1. **Advanced Pipeline** (`advanced_video_pipeline.py`): Full 11-step production pipeline
    - Web search → Gemini script → Image → Audio → Video → Metadata → Comments → Thumbnail → Pre-flight checks → Tracking → YouTube Upload
 
-3. **Podcast API Mode** (`podcast_api.py`): External API-driven content
-   - Priority: Podcast API > Spreadsheet > AI Generation
+2. **Podcast API Mode** (configured via `PODCAST_API_ENABLED`): External API-driven content
+   - Priority: Podcast API > AI Generation
    - Fetches pre-written scenarios and titles from external API
    - Converts Host A/Host B to fixed host names (田中太郎/佐藤花子)
    - Skips AI script generation, uses API-provided content directly
@@ -122,7 +115,7 @@ The advanced pipeline provides complete automation from topic discovery to YouTu
 3. **Script Generation** (`claude_generator.py`): Gemini 3.0 Flash creates template-driven dialogue
 4. **Background Setup**: Copies fixed `background.png` from project root (AI generation no longer used)
 5. **Audio Generation** (`tts_generator.py`): Gemini TTS (2.5 Flash/Pro) produces podcast-style audio
-6. **Video Assembly** (`video_maker.py` / `video_maker_moviepy.py`): FFmpeg/MoviePy combines audio + background + subtitles
+6. **Video Assembly** (`video_maker_ffmpeg.py`): FFmpeg combines audio + background + subtitles with efficient rendering
 7. **Metadata Generation** (`metadata_generator.py`): Template-based SEO-optimized titles/descriptions with Gemini enhancement
 8. **Comment Generation** (`metadata_generator.py`): 5 character personas generate engagement comments
 9. **Thumbnail Creation** (`thumbnail_generator.py`): Creates custom YouTube thumbnail with multiple layouts
@@ -143,7 +136,7 @@ The advanced pipeline provides complete automation from topic discovery to YouTu
 
 **Video Processing:**
 - `video_maker.py`: FFmpeg orchestration, subtitle rendering with PIL, frame generation (fast)
-- `video_maker_moviepy.py`: MoviePy-based rendering with fade effects (high quality)
+- `video_maker_ffmpeg.py`: Optimized FFmpeg-based rendering pipeline
 - `whisper_stt.py`: **FREE** OpenAI Whisper (local) Speech-to-Text for accurate subtitle synchronization
 - `elevenlabs_stt.py`: ElevenLabs Speech-to-Text (paid API) for accurate subtitle synchronization
 - `subtitle_generator.py`: Legacy subtitle system (not used in new pipeline)
@@ -156,7 +149,6 @@ The advanced pipeline provides complete automation from topic discovery to YouTu
 - `tracking.py`: Logs to Google Sheets or local JSON/CSV
 - `youtube_uploader.py`: YouTube Data API v3 integration for automatic uploads, thumbnail setting, and comment posting
 - `advanced_video_pipeline.py`: Main orchestrator with error handling and batch processing
-- `daily_video_job.py`: Simple orchestrator (legacy)
 
 ### Output Structure
 
@@ -228,44 +220,23 @@ The system automatically falls back through tiers if earlier options are unavail
 
 ## Video Rendering Details
 
-`video_maker_moviepy.py` creates podcast-style videos with MoviePy:
+The system uses FFmpeg-based rendering via `video_maker_ffmpeg.py` for high-performance video generation:
 
 - **Resolution**: 1920x1080 @ 30fps
-- **Subtitle Style**: Single-line display with speaker color stroke
-  - Speaker A (Male): Blue accent (#78C8FF)
-  - Speaker B (Female): Pink accent (#FF96B4)
-- **Font Handling**: Searches for Japanese fonts (Noto CJK, Hiragino, MS Gothic)
-- **Text Wrapping**: Max 26 characters per line, split at natural break points
-- **Process**: Background + Subtitle clips → Composite → Export with AAC audio
+- **Subtitle Format**: ASS (Advanced SubStation Alpha) with libass
+- **Gradient Overlay**: Bottom 35% of video for subtitle readability
+- **Font Handling**: Japanese fonts (Noto CJK, Hiragino, MS Gothic) auto-detected
+- **Process**: Background + Gradient + ASS subtitles → FFmpeg composite → MP4 export
 
-### CRITICAL: Subtitle Position Configuration
+### FFmpeg Path Resolution
 
-The subtitle positioning in `video_maker_moviepy.py` is carefully tuned to prevent text cut-off.
-**DO NOT modify these values without thorough testing:**
+The system searches for FFmpeg in this order:
+1. `/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg` (libass support)
+2. `/opt/homebrew/bin/ffmpeg`
+3. `/usr/local/bin/ffmpeg`
+4. System PATH fallback
 
-```python
-SUBTITLE_BOX_HEIGHT = 120    # Fixed height for text box
-SUBTITLE_Y_POSITION = 680    # Fixed Y position (top of text box)
-# Text bottom = 680 + 120 = 800px, leaving 280px margin
-```
-
-**Safe Area Calculation (1080p):**
-- Video height: 1080px
-- Subtitle Y position: 680px
-- Text box bottom: 800px
-- Bottom margin: 280px (safe)
-
-**If changing subtitle position:**
-1. MUST verify text is fully visible (not cut off at bottom)
-2. MUST stay within gradient overlay area (Y > 702 for bottom 35%)
-3. MUST test with long Japanese text (26+ characters)
-
-The module includes `_validate_subtitle_config()` which warns at load time if
-the configuration might cause text cut-off issues.
-
-**History:**
-- 2025-12-30: Fixed text cut-off by using `method='caption'` with fixed size box
-  and Y=680 position instead of dynamic positioning based on text height
+**Note**: FFmpeg with libass support is required for proper ASS subtitle rendering.
 
 ## Batch Processing
 
@@ -392,7 +363,7 @@ The following features have been recently implemented:
 - ✅ **Whisper STT integration** (`whisper_stt.py`): FREE local subtitle synchronization with 95%+ accuracy
 - ✅ **YouTube Data API v3 integration** (`youtube_uploader.py`): Automatic video uploads, thumbnail setting, and comment posting with OAuth 2.0 authentication
 - ✅ **ElevenLabs STT integration** (`elevenlabs_stt.py`): Optional paid accurate subtitle synchronization (99%+ accuracy)
-- ✅ **MoviePy rendering** (`video_maker_moviepy.py`): High-quality video rendering with fade effects
+- ✅ **FFmpeg-based rendering** (`video_maker_ffmpeg.py`): High-performance video assembly with ASS subtitles
 - ✅ **Template system** (`content_templates.py`): 4 script structures, 6 title patterns, 5 persona-based comments
 - ✅ **Pre-upload validation** (`pre_upload_checks.py`): Automated quality checks before YouTube upload
 - ✅ **Thumbnail tooling** (`thumb_lint.py`): Color, contrast, and file size validation

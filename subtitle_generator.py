@@ -27,19 +27,19 @@ BG_COLOR = '&H14141E'    # Dark blue background (approximate)
 VERTICAL_MARGIN = 280
 
 # Text wrapping settings
-MAX_CHARS_PER_LINE = 20  # Reduced from 26 to prevent cutoff with outline
-MAX_LINES = 2  # Maximum number of lines per subtitle
+MAX_CHARS_PER_LINE = 45  # Allow more characters to prevent breaking English words
+MAX_LINES = 3  # Reduced to 3 lines for better readability
 
 
 def _wrap_text(text: str, max_chars: int = MAX_CHARS_PER_LINE, max_lines: int = MAX_LINES) -> str:
     """
     Wrap text into multiple lines for subtitle display.
     Uses \\N for ASS subtitle line breaks.
-    
+
     Args:
         text: Original text
         max_chars: Maximum characters per line
-        max_lines: Maximum number of lines (soft limit, will exceed if text is too long)
+        max_lines: Maximum number of lines (HARD LIMIT - text will be truncated)
 
     Returns:
         Text with \\N line breaks inserted
@@ -55,7 +55,7 @@ def _wrap_text(text: str, max_chars: int = MAX_CHARS_PER_LINE, max_lines: int = 
     # Particles that shouldn't start a new line
     no_start_chars = 'はがのをにでとへもやかな'
 
-    while remaining:
+    while remaining and len(lines) < max_lines:
         if len(remaining) <= max_chars:
             lines.append(remaining)
             break
@@ -63,17 +63,35 @@ def _wrap_text(text: str, max_chars: int = MAX_CHARS_PER_LINE, max_lines: int = 
         # Find best break point within max_chars
         best_break = max_chars
 
-        # Look for punctuation break points
-        for i in range(max_chars - 1, max_chars // 2, -1):
-            if i < len(remaining) and remaining[i] in break_chars:
-                best_break = i + 1
-                break
-        else:
-            # No punctuation found, avoid breaking before particles
+        # First, try to find space (for English words) - don't break mid-word
+        if ' ' in remaining[:max_chars]:
+            # Find last space within limit
+            for i in range(min(max_chars, len(remaining)) - 1, max_chars // 2, -1):
+                if remaining[i] == ' ':
+                    best_break = i + 1
+                    break
+
+        # Look for punctuation break points (Japanese)
+        if best_break == max_chars:
+            for i in range(max_chars - 1, max_chars // 2, -1):
+                if i < len(remaining) and remaining[i] in break_chars:
+                    best_break = i + 1
+                    break
+
+        # Avoid breaking before particles (Japanese)
+        if best_break == max_chars:
             for i in range(max_chars - 1, max_chars // 2, -1):
                 if i < len(remaining) and remaining[i] not in no_start_chars:
                     best_break = i
                     break
+
+        # Last line: truncate with ellipsis if too long
+        if len(lines) == max_lines - 1:
+            lines.append(remaining[:best_break])
+            if len(remaining) > best_break:
+                # Add ellipsis to indicate truncation
+                lines[-1] = lines[-1][:-3] + "..."
+            break
 
         lines.append(remaining[:best_break])
         remaining = remaining[best_break:]

@@ -23,6 +23,9 @@ openai-whisper>=20231117
 google-auth-oauthlib>=1.0.0
 google-api-python-client>=2.100.0
 
+# Gemini API for content generation
+google-generativeai>=0.3.0
+
 # Local TTS (Phase 2)
 torch<2.6.0
 TTS>=0.22.0

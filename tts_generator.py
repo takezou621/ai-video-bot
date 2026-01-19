@@ -244,7 +244,8 @@ def _generate_with_voicevox(dialogues: List[Dict], output_path: Path) -> Tuple[P
     # This fixes sync issues caused by crossfading/mastering duration changes
     print("[TTS] Aligning subtitles with final audio...")
     if USE_WHISPER_STT or USE_ELEVENLABS_STT:
-        timing_result = _get_accurate_timing(successful_dialogues, final_mp3, adjusted_timing)
+        # VOICEVOX produces human-like voices, so is_synthetic=False
+        timing_result = _get_accurate_timing(successful_dialogues, final_mp3, adjusted_timing, is_synthetic=False)
     else:
         print("[TTS] Using calculated timing (Whisper disabled)")
         timing_result = adjusted_timing
@@ -324,8 +325,25 @@ def _generate_with_gemini(dialogues: List[Dict], output_path: Path) -> Tuple[Pat
     for chunk in chunk_paths:
         chunk.unlink(missing_ok=True)
 
-    # Get accurate timing
-    timing_result = _get_accurate_timing(dialogues, final_path, timing_data)
+    # CRITICAL FIX: Adjust timing to match actual concatenated audio duration
+    actual_duration = _get_audio_duration(final_path)
+    estimated_end = timing_data[-1]["end"] if timing_data else 0
+
+    if abs(actual_duration - estimated_end) > 1.0:  # More than 1 second difference
+        scale_factor = actual_duration / estimated_end
+        print(f"[TTS] Adjusting timing: estimated={estimated_end:.2f}s, actual={actual_duration:.2f}s, scale={scale_factor:.3f}")
+
+        # Scale all timing to match actual audio duration
+        current_time = 0.0
+        for segment in timing_data:
+            duration = (segment["end"] - segment["start"]) * scale_factor
+            segment["start"] = current_time
+            segment["end"] = current_time + duration
+            current_time += duration
+
+    # Get accurate timing (Whisper may still help with word-level timing)
+    # Gemini TTS produces synthetic speech, so is_synthetic=True
+    timing_result = _get_accurate_timing(dialogues, final_path, timing_data, is_synthetic=True)
 
     return final_path, timing_result
 
@@ -376,9 +394,27 @@ def _fallback_tts(dialogues: List[Dict], output_path: Path) -> Tuple[Path, List[
         # Clean up chunks
         for tf in temp_files:
             tf.unlink(missing_ok=True)
-        chunks_dir.rmdir()
+        # Use shutil to remove directory even if not empty (handles edge cases)
+        import shutil
+        shutil.rmtree(chunks_dir, ignore_errors=True)
     else:
         _create_empty_audio(final_path)
+
+    # CRITICAL FIX: Adjust timing to match actual concatenated audio duration
+    actual_duration = _get_audio_duration(final_path)
+    estimated_end = timing_data[-1]["end"] if timing_data else 0
+
+    if abs(actual_duration - estimated_end) > 1.0:  # More than 1 second difference
+        scale_factor = actual_duration / estimated_end
+        print(f"[TTS] Adjusting timing: estimated={estimated_end:.2f}s, actual={actual_duration:.2f}s, scale={scale_factor:.3f}")
+
+        # Scale all timing to match actual audio duration
+        current_time = 0.0
+        for segment in timing_data:
+            duration = (segment["end"] - segment["start"]) * scale_factor
+            segment["start"] = current_time
+            segment["end"] = current_time + duration
+            current_time += duration
 
     return final_path, timing_data
 
@@ -387,8 +423,28 @@ def _get_accurate_timing(
     dialogues: List[Dict],
     audio_path: Path,
     estimated_timing: List[Dict],
+    is_synthetic: bool = False,
 ) -> List[Dict]:
-    """Get accurate subtitle timing using Whisper or ElevenLabs STT."""
+    """
+    Get accurate subtitle timing using Whisper or ElevenLabs STT.
+
+    Args:
+        dialogues: List of dialogue segments
+        audio_path: Path to the audio file
+        estimated_timing: Estimated timing data
+        is_synthetic: True if using gTTS/Gemini TTS (synthetic voices)
+                     False if using VOICEVOX (human-like voices)
+    """
+
+    # Check if we're using gTTS (synthetic voice) - Whisper struggles with synthetic speech
+    # For gTTS, use simple estimated timing (more accurate than Whisper for synthetic speech)
+    using_gtts = _should_use_estimated_timing(dialogues, estimated_timing, is_synthetic)
+
+    if using_gtts:
+        synth_type = "Gemini TTS" if is_synthetic else "gTTS"
+        print(f"[TTS] Using estimated timing for synthetic speech ({synth_type})")
+        # Don't modify timing - keep it as-is for best sync
+        return estimated_timing
 
     if USE_WHISPER_STT:
         try:
@@ -416,6 +472,98 @@ def _get_accurate_timing(
 
     print("[TTS] Using estimated timing")
     return estimated_timing
+
+
+def _should_use_estimated_timing(
+    dialogues: List[Dict],
+    estimated_timing: List[Dict],
+    is_synthetic: bool = False,
+) -> bool:
+    """
+    Determine if we should use estimated timing instead of Whisper.
+    Returns True for gTTS (synthetic speech) where Whisper struggles.
+
+    Args:
+        dialogues: List of dialogue segments
+        estimated_timing: Timing data with start/end times
+        is_synthetic: True if using gTTS/Gemini TTS (synthetic voices)
+                     False if using VOICEVOX (human-like voices)
+    """
+    # For synthetic speech (gTTS, Gemini TTS), always use estimated timing
+    # Whisper struggles with synthetic voices due to robotic patterns
+    if is_synthetic:
+        return True
+
+    # For human-like voices (VOICEVOX), use the segment count heuristic
+    # Only skip Whisper if we have many short segments (unlikely for VOICEVOX)
+    if len(estimated_timing) > 15:
+        avg_duration = sum(
+            t["end"] - t["start"] for t in estimated_timing
+        ) / len(estimated_timing)
+        # Synthetic speech typically has shorter, more regular segments
+        if avg_duration < 5.0:
+            return True
+    return False
+
+
+def _improve_estimated_timing(
+    audio_path: Path,
+    timing_data: List[Dict],
+) -> List[Dict]:
+    """
+    Improve estimated timing by using actual audio duration and adding gaps.
+    """
+    import subprocess
+
+    # Get actual audio duration
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", str(audio_path)],
+        capture_output=True,
+        text=True
+    )
+
+    try:
+        actual_duration = float(result.stdout.strip())
+    except (ValueError, AttributeError):
+        actual_duration = None
+
+    if actual_duration is None:
+        return timing_data
+
+    # Calculate total estimated duration
+    total_estimated = sum(t["end"] - t["start"] for t in timing_data)
+    last_end = timing_data[-1]["end"] if timing_data else 0
+
+    # Scale timing if mismatch
+    if actual_duration > last_end * 1.1:  # More than 10% difference
+        scale_factor = actual_duration / last_end
+
+        # Apply scaling with gaps between segments
+        improved_timing = []
+        current_time = 0.0
+        gap = 0.15  # Small gap between speakers
+
+        for i, segment in enumerate(timing_data):
+            duration = (segment["end"] - segment["start"]) * scale_factor
+
+            # Add gap before new speaker (except first)
+            if i > 0:
+                prev_speaker = timing_data[i - 1]["speaker"]
+                curr_speaker = segment["speaker"]
+                if prev_speaker != curr_speaker:
+                    current_time += gap
+
+            improved_timing.append({
+                **segment,
+                "start": current_time,
+                "end": current_time + duration
+            })
+            current_time += duration
+
+        return improved_timing
+
+    return timing_data
 
 
 def _request_gemini_tts(text: str, voice_name: str) -> Tuple[bytes, str]:
