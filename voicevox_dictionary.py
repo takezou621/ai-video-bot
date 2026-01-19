@@ -137,6 +137,35 @@ ESSENTIAL_DICTIONARY: List[DictionaryEntry] = [
     DictionaryEntry("MVP", "エムブイピー", 5),
     DictionaryEntry("PoC", "ピーオーシー", 5),
     DictionaryEntry("OKR", "オーケーアール", 5),
+
+    # ============================================
+    # 英単語・人名（VOICEVOXがカタカナ読みしてしまう）
+    # ============================================
+    # 人名
+    DictionaryEntry("Moxie", "モキシー", 3),
+    DictionaryEntry("Moxie Marlinspike", "モキシーマーリンスパイク", 7),
+    DictionaryEntry("Marlinspike", "マーリンスパイク", 5),
+    DictionaryEntry("Musk", "マスク", 2),
+    DictionaryEntry("Elon Musk", "イーロンマスク", 5),
+    DictionaryEntry("Sam Altman", "サムオルトマン", 5),
+    DictionaryEntry("Altman", "オルトマン", 4),
+    DictionaryEntry("Satya", "サティア", 3),
+    DictionaryEntry("Nadella", "ナデラ", 3),
+    DictionaryEntry("Jensen", "イェンセン", 3),
+    DictionaryEntry("Huang", "ファン", 2),
+    DictionaryEntry("Demis", "デミス", 3),
+    DictionaryEntry("Hassabis", "ハサビス", 4),
+
+    # 技術用語（英単語）
+    DictionaryEntry("FP64", "エフピーろくよん", 5),
+    DictionaryEntry("FP32", "エフピーサんに", 5),
+    DictionaryEntry("FP16", "エフピーじゅうろく", 5),
+    DictionaryEntry("int8", "イントエイト", 4),
+    DictionaryEntry("emulation", "エミュレーション", 5),
+    DictionaryEntry("privacy", "プライバシー", 4),
+    DictionaryEntry("alternative", "オルタナティブ", 6),
+    DictionaryEntry("algorithm", "アルゴリズム", 5),
+    DictionaryEntry("innovation", "イノベーション", 5),
 ]
 
 # マッチング専用辞書（VOICEVOX登録は不要だが、Whisperとの照合用に読みが必要な単語）
@@ -267,13 +296,52 @@ def initialize_dictionary(force: bool = False) -> Tuple[int, int]:
     skipped = 0
 
     for entry in ESSENTIAL_DICTIONARY:
-        # Generate variations: Original, UPPERCASE, lowercase
-        variations = {entry.surface, entry.surface.upper(), entry.surface.lower()}
-        
+        # Generate variations: Original, UPPERCASE, lowercase, Full-width UPPERCASE
+        # Full-width uppercase is needed for TTS preprocessing which converts all letters to full-width uppercase
+        def to_fullwidth_uppercase(s: str) -> str:
+            result = []
+            for char in s:
+                if 'a' <= char <= 'z':
+                    result.append(chr(ord(char) - ord('a') + ord('Ａ')))
+                elif 'A' <= char <= 'Z':
+                    result.append(chr(ord(char) - ord('A') + ord('Ａ')))
+                else:
+                    result.append(char)
+            return ''.join(result)
+
+        surface_upper = entry.surface.upper()
+        variations = {
+            entry.surface,
+            surface_upper,
+            entry.surface.lower(),
+            to_fullwidth_uppercase(surface_upper),  # Full-width uppercase for TTS matching
+        }
+
         for surface in variations:
             # Check if this variation is already registered
-            if surface.lower() in existing_surfaces:
-                continue
+            # For full-width variations, check exact match first (to allow both titlecase and uppercase)
+            if any(c in 'ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺ' for c in surface):
+                # Full-width entry - check if exact string is already registered
+                if surface in existing_surfaces:
+                    continue
+            else:
+                # Half-width entry - normalize to check
+                normalized = surface.translate(str.maketrans(
+                    "ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ０１２３４５６７８９",
+                    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+                ))
+                if normalized.lower() in existing_surfaces:
+                    continue
+
+            # Mark this surface as registered (for both full-width and normalized)
+            if any(c in 'ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺ' for c in surface):
+                existing_surfaces.add(surface)  # Full-width: add exact string
+            else:
+                normalized = surface.translate(str.maketrans(
+                    "ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ０１２３４５６７８９",
+                    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+                ))
+                existing_surfaces.add(normalized.lower())
 
             # Create entry with this surface
             new_entry = DictionaryEntry(

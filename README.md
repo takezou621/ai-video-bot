@@ -60,15 +60,20 @@
 
 ### ✅ コア機能
 
-1. **🔍 トレンドトピック自動発見**
+1. **🎙️ Podcast API統合（デフォルト）**
+   - 外部APIから既製シナリオを取得
+   - Host A/Host B を自動的に日本語名に変換
+   - AI生成コストを削減
+
+2. **🔍 トレンドトピック自動発見（フォールバック）**
    - Serper API（Google Search）で最新ニュース自動収集
    - Gemini APIで最適なトピックを選定・分析
 
-2. **✍️ 高品質な台本生成**
+3. **✍️ 高品質な台本生成（フォールバック）**
    - Gemini 3.0 Flashでプロレベルの対話台本
    - テンプレート構造に基づく自然な会話
 
-3. **🎙️ 自然な音声合成**
+4. **🎙️ 自然な音声合成**
    - **VOICEVOX Engine**（Docker常駐・完全無料）⭐推奨
    - もち子さん（メイン）/ 四国めたん（サブ）の掛け合い
    - **NEW**: ユーザー辞書による英単語発音の最適化（GitHub, OpenAI, GPT等のIT用語を正しく発音）
@@ -112,9 +117,9 @@
 ```mermaid
 flowchart TB
     subgraph Input["📥 入力ソース"]
-        A1[🌐 Web検索<br/>Serper API]
-        A2[📋 Podcast API<br/>外部シナリオ]
-        A3[📊 Spreadsheet<br/>Google Sheets]
+        A1[🎙️ Podcast API<br/>外部シナリオ<br/>⭐デフォルト]
+        A2[📊 Spreadsheet<br/>Google Sheets]
+        A3[🌐 Web検索<br/>Serper API]
     end
 
     subgraph ContentGen["🤖 コンテンツ生成"]
@@ -150,9 +155,9 @@ flowchart TB
     end
 
     %% Flow connections
-    A1 --> B1
+    A1 --> B2
     A2 --> B2
-    A3 --> B2
+    A3 --> B1
     B1 --> B2
 
     B2 --> C1
@@ -210,13 +215,15 @@ flowchart TB
 │                              詳細ステップ                                    │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  Step 1: トピック取得                                                        │
+│  Step 1: シナリオ取得                                                        │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  Serper API ──▶ Gemini 3.0 Flash ──▶ トピック分析JSON               │   │
-│  │  (Web検索)      (最適トピック選定)     (topic.json)                  │   │
+│  │  Podcast API ──▶ Host A/B ──▶ 対話形式シナリオ                       │   │
+│  │  (外部シナリオ)    (日本語変換)      (script.json)                   │   │
+│  │  ※デフォルトモード: https://pg-admin.takezou.com/api/podcasts       │   │
+│  │  ※フォールバック: Spreadsheet → Web検索 + Gemini生成                │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                              ▼                                              │
-│  Step 2: 台本生成                                                           │
+│  Step 2: 台本生成（フォールバック時のみ）                                   │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
 │  │  トピック ──▶ Gemini 3.0 Flash ──▶ 対話形式台本                      │   │
 │  │              + テンプレート構造      (script.json)                   │   │
@@ -282,9 +289,10 @@ flowchart TB
 
 | ステップ | サービス | 用途 | コスト |
 |---------|---------|------|-------|
-| トピック検索 | Serper API | Google検索 | 有料 (少額) |
-| トピック選定 | Gemini 3.0 Flash | AI分析 | 有料 |
-| 台本生成 | Gemini 3.0 Flash | 対話生成 | 有料 |
+| **シナリオ取得** | **Podcast API** | 外部シナリオ（デフォルト） | **無料** |
+| トピック検索 | Serper API | Google検索（フォールバック） | 有料 (少額) |
+| トピック選定 | Gemini 3.0 Flash | AI分析（フォールバック） | 有料 |
+| 台本生成 | Gemini 3.0 Flash | 対話生成（フォールバック） | 有料 |
 | 音声合成 | **VOICEVOX Engine** | 日本語TTS | **無料** |
 | 字幕タイミング | **Whisper STT** | 音声認識 | **無料** |
 | 背景画像 | **固定画像** | background.png | **無料** |
@@ -392,8 +400,9 @@ ai-video-bot/
   │
   ├── # 🤖 AI統合
   ├── claude_generator.py             # Gemini API（テンプレート統合済み、旧Claude命名）⭐
-  ├── web_search.py                   # Web検索・トピック選定
+  ├── web_search.py                   # Web検索・トピック選定（フォールバック）
   ├── llm_story.py                    # Gemini台本生成（フォールバック）
+  ├── podcast_api.py                  # ⭐ 外部APIからシナリオ取得（デフォルト）
   │
   ├── # 🎨 コンテンツ生成
   ├── content_templates.py            # ⭐NEW テンプレートシステム
@@ -481,8 +490,17 @@ ELEVENLABS_API_KEY=                      # ElevenLabs API Key（USE_ELEVENLABS_S
 USE_MOVIEPY=true                         # 高品質レンダリング
 
 # オプション（高度な機能）
-SERPER_API_KEY=your_serper_key          # Web検索用
+SERPER_API_KEY=your_serper_key          # Web検索用（フォールバック）
 SLACK_WEBHOOK_URL=your_slack_webhook    # Slack通知用
+
+# Podcast API（デフォルト）⭐NEW
+PODCAST_API_ENABLED=true                # 外部APIからシナリオ取得（デフォルト: 有効）
+PODCAST_API_URL=https://pg-admin.takezou.com/api/podcasts  # APIエンドポイント
+
+# Spreadsheet入力（オプション）
+SHEETS_INPUT_ENABLED=false              # Google Sheetsからシナリオ取得
+SHEETS_SPREADSHEET_ID=                  # Spreadsheet ID
+SHEETS_SERVICE_ACCOUNT_FILE=service_account.json
 
 # YouTube自動アップロード（オプション）⭐NEW
 YOUTUBE_UPLOAD_ENABLED=false            # YouTube自動投稿を有効化
@@ -493,7 +511,7 @@ YOUTUBE_PLAYLIST_ID=                    # プレイリストID（オプション
 VIDEOS_PER_DAY=1                        # 1日の生成本数（1-4推奨）
 DURATION_MINUTES=10                     # 動画の長さ（分）
 TOPIC_CATEGORY=economics                # トピックカテゴリ
-USE_WEB_SEARCH=false                    # Web検索を使うか
+USE_WEB_SEARCH=false                    # Web検索を使うか（フォールバック）
 ```
 
 ### 3. Docker イメージをビルド
@@ -569,6 +587,7 @@ docker compose run --rm ai-video-bot python advanced_video_pipeline.py
 ```
 
 **含まれる機能:**
+- ✅ **Podcast API統合（デフォルト）**: 外部APIから既製シナリオを取得
 - ✅ 高精度なタイミング推定による字幕（オプション：ElevenLabs STTで99%+）
 - ✅ MoviePyによる高品質レンダリング
 - ✅ テンプレート構造の台本
@@ -753,20 +772,22 @@ ContentTemplates.SCRIPT_STRUCTURES["custom"] = {
 
 | サービス | 使用量 | 月額概算 |
 |---------|--------|----------|
-| Gemini API (Script/Metadata) | ~40,000 tokens/本 | ¥2,000 |
+| **Podcast API** | シナリオ取得 | **¥0（無料・デフォルト）** |
+| Gemini API (Script/Metadata) | フォールバック時のみ | ¥500 |
 | **VOICEVOX Engine** | 10分/本 | **¥0（無料）** |
 | **固定背景画像** | - | **¥0（無料）** |
 | **Whisper STT** | 10分/本 | **¥0（無料）** |
 | Serper API | 120回/月 | ¥500 |
-| **合計** | | **¥2,500** |
+| **合計** | | **¥1,000** |
 
 ### 従来構成との比較
 
 | 構成 | 月額コスト | 備考 |
 |------|-----------|------|
-| **現在（VOICEVOX + 固定背景）** | **¥2,500** | 推奨・大幅コスト削減 |
+| **現在（Podcast API + VOICEVOX + 固定背景）** | **¥1,000** | 推奨・最安構成 |
+| 従来（VOICEVOX + 固定背景） | ¥2,500 | Gemini生成使用 |
 | 従来（Gemini TTS + DALL-E 3） | ¥7,600 | 有料API使用 |
-| 高精度オプション（+ ElevenLabs STT） | ¥3,700 | 字幕精度99%+ |
+| 高精度オプション（+ ElevenLabs STT） | ¥2,200 | 字幕精度99%+ |
 
 **※ Zenn記事の事例では、広告収益がAPIコストを上回っています**
 **※ VOICEVOX + Whisper採用で月額コストを約70%削減**
@@ -929,11 +950,12 @@ MIT License
 
 **成功のポイント：**
 1. ✅ 完全自動化パイプライン（30分で完成）
-2. ✅ 高品質なAI生成（Gemini + テンプレート）
-3. ✅ SEO完全最適化（タイトル・説明文・タグ）
-4. ✅ エンゲージメント設計（5つのペルソナコメント）
-5. ✅ スケーラブルな構成（複数動画/日）
-6. ✅ 実証済みの効果（3ヶ月で収益化達成）
+2. ✅ **Podcast API統合でコスト削減（デフォルト有効）**
+3. ✅ 高品質なAI生成（Gemini + テンプレート）
+4. ✅ SEO完全最適化（タイトル・説明文・タグ）
+5. ✅ エンゲージメント設計（5つのペルソナコメント）
+6. ✅ スケーラブルな構成（複数動画/日）
+7. ✅ 実証済みの効果（3ヶ月で収益化達成）
 
 **今すぐ始めましょう！** 🚀
 

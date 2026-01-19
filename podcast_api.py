@@ -14,7 +14,7 @@ PODCAST_API_URL = os.getenv(
     "PODCAST_API_URL",
     "https://pg-admin.takezou.com/api/podcasts"
 )
-PODCAST_API_ENABLED = os.getenv("PODCAST_API_ENABLED", "false").lower() == "true"
+PODCAST_API_ENABLED = os.getenv("PODCAST_API_ENABLED", "true").lower() == "true"
 
 # ホスト名の設定 (Host A → 男性, Host B → 女性)
 # これらの名前は動画内で表示されます
