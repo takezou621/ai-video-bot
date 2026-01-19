@@ -287,8 +287,16 @@ def _synthesize(
     volume_scale: float,
 ) -> Optional[Path]:
     """Internal synthesis function without retry logic."""
+    # Preprocess text: convert English words to katakana for natural pronunciation
+    # This handles common English names and tech terms automatically
+    try:
+        from english_to_katakana import preprocess_text_for_tts
+        processed_text = preprocess_text_for_tts(text)
+    except ImportError:
+        processed_text = text
+
     # Step 1: Create Audio Query
-    params = {"text": text, "speaker": speaker_id}
+    params = {"text": processed_text, "speaker": speaker_id}
     query_response = requests.post(
         f"{VOICEVOX_URL}/audio_query",
         params=params,
