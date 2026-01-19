@@ -16,11 +16,11 @@ load_dotenv(BASE / ".env")
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Import all our new modules
-from web_search import search_trending_topics, select_topic_with_claude, search_latest_ai_news
-from claude_generator import (
-    generate_dialogue_script_with_claude,
-    generate_metadata_with_claude,
-    generate_comments_with_claude
+from web_search import search_trending_topics, select_topic, search_latest_ai_news
+from gemini_generator import (
+    generate_dialogue_script,
+    generate_metadata,
+    generate_comments
 )
 from tts_generator import generate_dialogue_audio
 from thumbnail_generator import create_thumbnail
@@ -200,12 +200,12 @@ def generate_single_video(
                     print("  Mode: Latest International AI News")
                     search_results = search_latest_ai_news()
                     # For AI news, we want to summarize multiple articles, not just one
-                    topic_analysis = select_topic_with_claude(search_results, duration_minutes, topic_category)
+                    topic_analysis = select_topic(search_results, duration_minutes, topic_category)
                     # Add all news articles for multi-article summary
                     topic_analysis["all_news_articles"] = search_results
                 else:
                     search_results = search_trending_topics(topic_category)
-                    topic_analysis = select_topic_with_claude(search_results, duration_minutes, topic_category)
+                    topic_analysis = select_topic(search_results, duration_minutes, topic_category)
             else:
                 # Use fallback topic - avoid duplicates with past topics
                 past_topics = get_past_topics(max_count=20)
@@ -241,7 +241,7 @@ def generate_single_video(
 
             # Step 2: Generate dialogue script (Blog's Prompt B)
             print("\n[2/10] ✍️  Generating dialogue script with Gemini...")
-            script = generate_dialogue_script_with_claude(topic_analysis, duration_minutes)
+            script = generate_dialogue_script(topic_analysis, duration_minutes)
             print(f"  Title: {script['title']}")
             print(f"  Dialogues: {len(script['dialogues'])} exchanges")
 
@@ -436,7 +436,7 @@ def generate_single_video(
 
         # Step 6: Generate metadata with templates
         print("\n[6/10] 📝 Generating metadata with Gemini + Templates...")
-        claude_metadata = generate_metadata_with_claude(script, video_duration)
+        llm_metadata = generate_metadata(script, video_duration)
 
         # Get source URL directly from topic analysis to avoid LLM truncation
         verified_urls = []
@@ -448,7 +448,7 @@ def generate_single_video(
             script=script,
             timing_data=timing_data,
             video_duration_seconds=video_duration,
-            claude_metadata=claude_metadata,
+            llm_metadata=llm_metadata,
             verified_source_urls=verified_urls
         )
         print(f"  YouTube Title: {metadata.get('youtube_title', 'N/A')}")
@@ -462,16 +462,16 @@ def generate_single_video(
         print("\n[7/10] 💬 Generating engagement comments...")
 
         # Get Gemini-generated comments
-        claude_comments = generate_comments_with_claude(script, count=3)
+        llm_comments = generate_comments(script, count=3)
 
         # Add template-generated comments
         template_comments = generate_engagement_comments(script, count=2)
 
         # Combine both types
-        comments = claude_comments + template_comments
+        comments = llm_comments + template_comments
         json.dump({"comments": comments}, open(outdir / "comments.json", "w", encoding="utf-8"),
                   ensure_ascii=False, indent=2)
-        print(f"  Generated {len(comments)} comments (Gemini: {len(claude_comments)}, Template: {len(template_comments)})")
+        print(f"  Generated {len(comments)} comments (Gemini: {len(llm_comments)}, Template: {len(template_comments)})")
 
         # Step 8: Generate thumbnail with background + PIL text overlay
         print("\n[8/10] 🖼️  Generating thumbnail...")
