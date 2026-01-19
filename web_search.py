@@ -306,7 +306,7 @@ def search_trending_topics(
         return _annotate_topics_with_entities(_fallback_topics(topic_category))
 
 
-def select_topic_with_claude(
+def select_topic(
     search_results: List[Dict[str, Any]],
     target_duration_minutes: int = 10,
     topic_category: str = "economics"
@@ -322,6 +322,9 @@ def select_topic_with_claude(
 
     Returns:
         Selected topic with analysis
+
+    Note:
+        This function was previously named select_topic_with_claude for backward compatibility.
     """
     if not GEMINI_API_KEY:
         # Return first topic if no Gemini API
@@ -560,12 +563,16 @@ def _fallback_selected_topic(category: str = "economics") -> Dict[str, Any]:
     }
 
 
+# Backward compatibility alias (function was previously named select_topic_with_claude)
+select_topic_with_claude = select_topic
+
+
 if __name__ == "__main__":
     # Test
     results = search_trending_topics("economics")
     print(f"\nFound {len(results)} topics")
 
     if results:
-        selected = select_topic_with_claude(results, target_duration_minutes=10)
+        selected = select_topic(results, target_duration_minutes=10)
         print(f"\nSelected: {selected.get('title', 'Unknown')}")
         print(f"Angle: {selected.get('angle', 'N/A')}")

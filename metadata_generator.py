@@ -13,7 +13,7 @@ def generate_complete_metadata(
     script: Dict[str, Any],
     timing_data: List[Dict],
     video_duration_seconds: float,
-    claude_metadata: Dict[str, Any] = None,
+    llm_metadata: Dict[str, Any] = None,
     verified_source_urls: List[str] = None
 ) -> Dict[str, Any]:
     """
@@ -23,7 +23,7 @@ def generate_complete_metadata(
         script: Generated script
         timing_data: Subtitle timing data
         video_duration_seconds: Video duration
-        claude_metadata: Optional AI-generated metadata (from Gemini)
+        llm_metadata: Optional AI-generated metadata (from Gemini)
         verified_source_urls: Optional list of verified source URLs (prioritized over script URLs)
 
     Returns:
@@ -62,7 +62,7 @@ def generate_complete_metadata(
             "短時間で理解を深めたい方"
         ],
         next_topic="関連する経済トピック",
-        hashtags=claude_metadata.get("hashtags", []) if claude_metadata else ["#経済", "#ビジネス", "#解説"]
+        hashtags=llm_metadata.get("hashtags", []) if llm_metadata else ["#経済", "#ビジネス", "#解説"]
     )
 
     # Append source URLs for credibility
@@ -77,7 +77,7 @@ def generate_complete_metadata(
                 full_description += f"- {url}\n"
 
     # Combine AI metadata with template metadata
-    youtube_title = claude_metadata.get("youtube_title", title) if claude_metadata else title
+    youtube_title = llm_metadata.get("youtube_title", title) if llm_metadata else title
     youtube_title = _enforce_named_entity_prefix(youtube_title, primary_entity)
 
     # Optimize title for CTR (blog's SEO approach)
@@ -103,9 +103,9 @@ def generate_complete_metadata(
     metadata = {
         "youtube_title": youtube_title,
         "youtube_description": full_description,
-        "tags": claude_metadata.get("tags", script.get("tags", [])) if claude_metadata else script.get("tags", []),
-        "category": claude_metadata.get("category", "Education") if claude_metadata else "Education",
-        "hashtags": claude_metadata.get("hashtags", []) if claude_metadata else ["#経済", "#ビジネス"],
+        "tags": llm_metadata.get("tags", script.get("tags", [])) if llm_metadata else script.get("tags", []),
+        "category": llm_metadata.get("category", "Education") if llm_metadata else "Education",
+        "hashtags": llm_metadata.get("hashtags", []) if llm_metadata else ["#経済", "#ビジネス"],
         "timestamps": timestamps,
         "duration_formatted": _format_duration(video_duration_seconds),
         "named_entities": named_entities,
