@@ -106,10 +106,12 @@ def is_duplicate_topic(new_url: str, new_title: str, history: Dict) -> bool:
         used_keywords = set(w for w in used_title.split() if len(w) > 3)
 
         # If 70%+ keywords overlap, consider duplicate
+        # Use 80% threshold for AI news to allow more variety
+        threshold = 0.8
         if new_keywords and used_keywords:
             overlap = len(new_keywords & used_keywords)
             similarity = overlap / min(len(new_keywords), len(used_keywords))
-            if similarity > 0.7:
+            if similarity > threshold:
                 return True
 
     return False
@@ -130,6 +132,13 @@ def filter_duplicate_topics(topics: List[Dict], history: Dict) -> List[Dict]:
     for topic in topics:
         url = topic.get("url", "")
         title = topic.get("title", "")
+
+        # Skip duplicate check for English news topics (from RSS/Serper)
+        # These are raw news sources that should always be considered fresh
+        is_english = topic.get("is_english", False)
+        if is_english:
+            filtered.append(topic)
+            continue
 
         if not is_duplicate_topic(url, title, history):
             filtered.append(topic)

@@ -22,6 +22,7 @@ HOST_A_NAME = "田中太郎"
 HOST_B_NAME = "佐藤花子"
 
 
+
 def fetch_podcasts(limit: int = 5, order: str = "id.desc") -> List[Dict[str, Any]]:
     """
     APIからポッドキャストデータを取得

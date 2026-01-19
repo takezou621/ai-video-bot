@@ -46,7 +46,20 @@ raw_audio.pcm
 
 # Test / generation outputs
 test_output/
+test_*/
 nanobanana-output/
+output/
+
+# Continue IDE
+.continue/
+
+# Temporary test files
+temp_*.wav
+temp_*.mp3
+temp_*.mp4
+verify_sync.py
+test_script.txt
+run_pipeline.sh
 
 # API key state files (runtime state, not config)
 .api_key_state_*.json

@@ -81,13 +81,17 @@ def fetch_rss_news(category: str = "technology", max_results: int = 15) -> List[
                 import re
                 summary = re.sub('<[^<]+?>', '', summary)[:300] + "..."
 
+                # Mark ai_news as English content (to skip duplicate checking against Japanese history)
+                is_english_content = category == "ai_news"
+
                 item = {
                     "title": title,
                     "snippet": summary,
                     "url": link,
                     "source": source_title,
                     "date": date_str,
-                    "is_rss": True
+                    "is_rss": True,
+                    "is_english": is_english_content
                 }
                 all_entries.append(item)
                 

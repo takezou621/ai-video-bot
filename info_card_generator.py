@@ -40,9 +40,15 @@ def create_benchmark_card(
     
     # Load fonts
     font_path = _find_font()
-    title_font = ImageFont.truetype(font_path, 60)
-    label_font = ImageFont.truetype(font_path, 40)
-    value_font = ImageFont.truetype(font_path, 50, index=1) # Bold if possible
+    if font_path:
+        title_font = ImageFont.truetype(font_path, 60)
+        label_font = ImageFont.truetype(font_path, 40)
+        value_font = ImageFont.truetype(font_path, 50)  # Same font, larger size
+    else:
+        # Use default font if no font file found
+        title_font = ImageFont.load_default()
+        label_font = ImageFont.load_default()
+        value_font = ImageFont.load_default()
     
     # Draw title
     draw.text((padding + 60, padding + 60), title, font=title_font, fill=ACCENT_COLOR)
@@ -83,12 +89,15 @@ def _find_font() -> str:
         "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
         "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
         "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
         "msgothic.ttc"
     ]
     for p in font_paths:
         if os.path.exists(p):
             return p
-    return "Arial" # Fallback
+    # Return None to use default font as fallback
+    return None
 
 if __name__ == "__main__":
     # Test
