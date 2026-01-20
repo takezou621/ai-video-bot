@@ -11,6 +11,9 @@ generation.log
 # YouTube API credentials and tokens (must not be committed)
 youtube_credentials.json
 youtube_token.pickle
+youtube_auth.pickle
+youtube_service_account.json
+youtube_service_account.json.*
 
 # Python
 __pycache__/
