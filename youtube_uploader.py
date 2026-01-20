@@ -22,16 +22,45 @@ SCOPES = [
 
 BASE = Path(__file__).parent
 CREDENTIALS_FILE = BASE / "youtube_credentials.json"
-TOKEN_FILE = BASE / "youtube_token.pickle"
+TOKEN_FILE = BASE / "youtube_auth.pickle"  # Changed from youtube_token.pickle to avoid directory conflict
 
 
 def authenticate_youtube() -> Optional[any]:
     """
-    Authenticate with YouTube Data API v3 using OAuth 2.0
+    Authenticate with YouTube Data API v3 using Service Account or OAuth 2.0
 
     Returns:
         YouTube API service object or None if authentication fails
     """
+    # Check for service account first
+    service_account_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+    service_account_file = BASE / "youtube_service_account.json"
+
+    if service_account_path or service_account_file.exists():
+        # Use service account authentication
+        try:
+            from google.oauth2 import service_account
+
+            # Determine service account file path
+            if service_account_path:
+                sa_path = service_account_path
+            else:
+                sa_path = str(service_account_file)
+
+            print(f"Using service account authentication: {sa_path}")
+
+            credentials = service_account.Credentials.from_service_account_file(
+                sa_path,
+                scopes=SCOPES
+            )
+
+            return build('youtube', 'v3', credentials=credentials)
+
+        except Exception as e:
+            print(f"Service account authentication failed: {e}")
+            print("Falling back to OAuth 2.0...")
+
+    # Fallback to OAuth 2.0
     creds = None
 
     # Load existing token if available
