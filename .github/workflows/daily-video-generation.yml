@@ -14,14 +14,8 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-
-    - name: Install dependencies
-      run: |
-        pip install requests google-auth-oauthlib google-api-python-client
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
 
     - name: Generate video and upload to YouTube
       env:
@@ -35,8 +29,9 @@ jobs:
         USE_WEB_SEARCH: true
         SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        GOOGLE_APPLICATION_CREDENTIALS: /app/youtube_service_account.json
       run: |
-        python advanced_video_pipeline.py
+        docker compose run --rm ai-video-bot python advanced_video_pipeline.py
 
     - name: Upload outputs as artifacts
       if: always()

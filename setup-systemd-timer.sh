@@ -35,7 +35,7 @@ Description=Daily AI Video Generation Timer
 Requires=daily-video.service
 
 [Timer]
-OnCalendar=*-*-* 07:00:00
+OnCalendar=*-*-* 22:00:00
 Persistent=true
 AccuracySec=1h
 
